@@ -31,7 +31,6 @@ class MapConverter(Node):
             history=QoSHistoryPolicy.KEEP_LAST,
             depth=1)
 
-        self.test_map_pub = self.create_publisher(OccupancyGrid, "test_map", 1)
         self.test_map_sub = self.create_subscription(OccupancyGrid, map_topic, self.map_callback, qos_profile=map_sub_qos)
 
         # Probably there's some way to get trimesh logs to point to ROS
@@ -51,7 +50,6 @@ class MapConverter(Node):
 
         corners = list(np.vstack(contours))
         corners = [c[0] for c in corners]
-        #self.publish_test_map(corners, map_msg.info, map_msg.header)
         mesh = trimesh.util.concatenate(meshes)
 
         # Export as STL or DAE
@@ -65,21 +63,6 @@ class MapConverter(Node):
             with open(export_dir + "/map.dae", 'wb') as f:
                 f.write(trimesh.exchange.dae.export_collada(mesh))
             self.get_logger().info("Exported DAE. Shutting down this node now.")
-
-    def publish_test_map(self, points, metadata, map_header):
-        """
-        For testing purposes, publishes a map highlighting certain points.
-        points is a list of tuples (x, y) in the map's coordinate system.
-        """
-        test_map = np.zeros((metadata.height, metadata.width))
-        for x, y in points:
-            test_map[y, x] = 100
-        test_map_msg = OccupancyGrid()
-        test_map_msg.header = map_header
-        test_map_msg.header.stamp = self.get_clock().now().to_msg()
-        test_map_msg.info = metadata
-        test_map_msg.data = test_map # TODO: Convert to the correct format
-        self.test_map_pub.publish(test_map_msg)
 
     def get_occupied_regions(self, map_array):
         """
