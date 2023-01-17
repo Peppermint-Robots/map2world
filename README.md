@@ -15,8 +15,9 @@ map2gazebo Project URL: https://github.com/shilohc/map2gazebo
 ## Installation
 - Make sure all pre-requisites are installed on your system first.
 - Create a new folder. Let's say it's map2world.
-- Create a src folder inside it.
-- Open a fresh terminal. `cd` into map2world (or whatever name you had given).
+- Create a src folder inside it. 
+- Open a fresh terminal. `cd` into map2world/src. Clone this repository.
+- Execute `cd ..` in the same terminal to move a folder up to map2world.
 - Execute `colcon build` in the terminal.
 
 ## Usage
