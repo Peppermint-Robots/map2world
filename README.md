@@ -6,14 +6,18 @@ map2gazebo Project URL: https://github.com/shilohc/map2gazebo
 ## Pre-Requisites
 - ROS2 Humble (tested with the Debian packages)
 - Python3 Dependencies
-    - opencv
+    - opencv-python
     - numpy
     - trimesh
     - matplotlib
     - pycollada
 
 ## Installation
-- Clone the repository, `cd` into it in a terminal, and run `colcon build`
+- Make sure all pre-requisites are installed on your system first.
+- Create a new folder. Let's say it's map2world.
+- Create a src folder inside it.
+- Open a fresh terminal. `cd` into map2world (or whatever name you had given).
+- Execute `colcon build` in the terminal.
 
 ## Usage
 - Make sure the installation is properly completed
