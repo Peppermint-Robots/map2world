@@ -23,21 +23,20 @@ class MapConverter(Node):
         super().__init__("map2world")
         self.declare_parameter("map_topic", "map")
         self.declare_parameter("mesh_type", "dae")
-        self.declare_parameter("export_dir", str(os.getcwd()))
         self.declare_parameter("occupied_threshold", 1)
         self.declare_parameter("box_height", 2.0)
         self.declare_parameter("gauss_blur", 7)
-        self.declare_parameter("blur_thresh", 15)
+        # by increasing blur thresh by greater factor you will make the blurred noise stronger, and for very large value the map will become blank
+        self.declare_parameter("edge_strength", 15)
         self.declare_parameter("median_blur", 9)
-        self.declare_parameter("edge_strength", 3)
-
+        # used to decide whether you want to apply slight blur before creating 3d map.
+        # blur helps to smudge the edges so they apper to continuous to the contour
+        # detection and the gaps in the wall due to sensor error is removed.
+        self.declare_parameter("blur_factor", 3)
 
         map_topic = self.get_parameter("map_topic").get_parameter_value().string_value
         self.mesh_type = (
             self.get_parameter("mesh_type").get_parameter_value().string_value
-        )
-        self.export_dir = (
-            self.get_parameter("export_dir").get_parameter_value().string_value
         )
         self.threshold = (
             self.get_parameter("occupied_threshold").get_parameter_value().double_value
@@ -48,14 +47,14 @@ class MapConverter(Node):
         self.gauss_blur = (
             self.get_parameter("gauss_blur").get_parameter_value().integer_value
         )
-        self.blur_thresh = (
-            self.get_parameter("blur_thresh").get_parameter_value().integer_value
+        self.edge_strength = (
+            self.get_parameter("edge_strength").get_parameter_value().integer_value
         )
         self.median_blur = (
             self.get_parameter("median_blur").get_parameter_value().integer_value
         )
-        self.edge_strength = (
-            self.get_parameter("edge_strength").get_parameter_value().integer_value
+        self.blur_factor = (
+            self.get_parameter("blur_factor").get_parameter_value().integer_value
         )
 
         map_sub_qos = QoSProfile(
@@ -68,7 +67,7 @@ class MapConverter(Node):
         self.test_map_sub = self.create_subscription(
             OccupancyGrid, map_topic, self.map_callback, qos_profile=map_sub_qos
         )
-
+        self.export_dir = str(os.getcwd())
         # Probably there's some way to get trimesh logs to point to ROS
         # logs, but I don't know it.  Uncomment the below if something
         # goes wrong with trimesh to get the logs to print to stdout.
@@ -80,9 +79,9 @@ class MapConverter(Node):
 
         This function subscribes to a 2D occupancy grid map, processes the data to
         identify occupied regions, and generates a 3D mesh model from the contours
-        of those regions. The resulting mesh can be exported in STL or DAE format 
+        of those regions. The resulting mesh can be exported in STL or DAE format
         based on the specified `mesh_type`.
-        
+
         Workflow:
         1. Prompts the user for a model name.
         2. Processes the incoming occupancy grid map to reshape the data.
@@ -92,12 +91,12 @@ class MapConverter(Node):
         6. Exports the resulting mesh as STL or DAE based on the user's choice.
 
         Args:
-            map_msg (nav_msgs.msg.OccupancyGrid): ROS OccupancyGrid message containing 
+            map_msg (nav_msgs.msg.OccupancyGrid): ROS OccupancyGrid message containing
             the 2D map data.
         """
         self.get_logger().info("Lets trun 2D map into 3D maps!.")
         model_name = input("\nEnter the model name: ")
-        self.create_project_structure(model_name=model_name, mesh_type = self.mesh_type)
+        self.create_project_structure(model_name=model_name, mesh_type=self.mesh_type)
         self.get_logger().info("Received map. Processing.")
         map_dims = (map_msg.info.height, map_msg.info.width)
         map_array = np.array(map_msg.data).reshape(map_dims)
@@ -107,8 +106,6 @@ class MapConverter(Node):
         contours = self.get_occupied_regions(map_array, model_name)
         meshes = self.contour_to_mesh(contours, map_msg.info)
 
-        corners = list(np.vstack(contours))
-        corners = [c[0] for c in corners]
         mesh = trimesh.util.concatenate(meshes)
 
         # Export as STL or DAE
@@ -129,53 +126,49 @@ class MapConverter(Node):
 
     def get_occupied_regions(self, map_array, model_name):
         """
-        Identifies occupied regions in a 2D map using contour detection.
+            Identifies occupied regions in a 2D map using contour detection.
 
-    This function processes the input 2D occupancy grid map by applying several 
-    image processing techniques, such as thresholding, Gaussian blur, and contour 
-    detection, to identify regions that are considered occupied. The detected 
-    contours represent the boundaries of the occupied areas in the map.
-    
-    Processing Steps:
-        1. Converts the occupancy grid map to an 8-bit unsigned integer format.
-        2. Applies a binary threshold to the map to separate occupied and unoccupied regions.
-        3. Blurs the thresholded image using a Gaussian filter and applies an inverse 
-           binary threshold to create a mask.
-        4. Applies median blur to the mask and performs a bitwise AND operation with 
-           the original thresholded image to isolate edges.
-        5. Finds contours using OpenCV's `RETR_CCOMP` method, which classifies external 
-           and internal contours separately.
-        6. Saves the contour image for debugging and returns the external contours 
-           representing occupied regions.
+        This function processes the input 2D occupancy grid map by applying several
+        image processing techniques, such as thresholding, Gaussian blur, and contour
+        detection, to identify regions that are considered occupied. The detected
+        contours represent the boundaries of the occupied areas in the map.
 
-        Args:
-            map_array (numpy.ndarray): A 2D numpy array representing the occupancy grid map.
-            The map contains occupancy values where -1 indicates unknown, 0 indicates 
-            unoccupied, and positive values indicate occupied regions.
-            model_name (str): The name of the model, used for saving contour images 
-            for debugging purposes.
+        Processing Steps:
+            1. Converts the occupancy grid map to an 8-bit unsigned integer format.
+            2. Applies a binary threshold to the map to separate occupied and unoccupied regions.
+            3. Blurs the thresholded image using a Gaussian filter and applies an inverse
+               binary threshold to create a mask.
+            4. Applies median blur to the mask and performs a bitwise AND operation with
+               the original thresholded image to isolate edges.
+            5. Finds contours using OpenCV's `RETR_CCOMP` method, which classifies external
+               and internal contours separately.
+            6. Saves the contour image for debugging and returns the external contours
+               representing occupied regions.
 
-        Returns:
-            list: A list of contours where each contour represents an occupied region 
-            in the 2D map. Each contour is a numpy array of points that define the boundary 
-            of the region.
+            Args:
+                map_array (numpy.ndarray): A 2D numpy array representing the occupancy grid map.
+                The map contains occupancy values where -1 indicates unknown, 0 indicates
+                unoccupied, and positive values indicate occupied regions.
+                model_name (str): The name of the model, used for saving contour images
+                for debugging purposes.
+
+            Returns:
+                list: A list of contours where each contour represents an occupied region
+                in the 2D map. Each contour is a numpy array of points that define the boundary
+                of the region.
         """
         map_array = map_array.astype(np.uint8)
         _, thresh_img = cv2.threshold(map_array, self.threshold, 255, cv2.THRESH_BINARY)
-
-        # thresh_edged_img=cv2.Canny(thresh_img,60,171)
         blurred_img = cv2.GaussianBlur(
             thresh_img, (self.gauss_blur, self.gauss_blur), self.gauss_blur
         )
         thresh_blur, thresh_blur_img = cv2.threshold(
-            blurred_img, self.blur_thresh, 255, cv2.THRESH_BINARY_INV
+            blurred_img, self.edge_strength, 255, cv2.THRESH_BINARY_INV
         )
         medianblur = cv2.medianBlur(thresh_blur_img, self.median_blur)
-
         final_img = cv2.bitwise_and(thresh_img, medianblur)
-
         a = cv2.subtract(thresh_img, final_img)
-        a = cv2.blur(a, (self.edge_strength, self.edge_strength))
+        a = cv2.blur(a, (self.blur_factor, self.blur_factor))
 
         # Using cv2.RETR_CCOMP classifies external contours at top level of
         # hierarchy and interior contours at second level.
@@ -183,12 +176,9 @@ class MapConverter(Node):
         # all interior obstacles e.g. furniture.
         # https://docs.opencv.org/trunk/d9/d8b/tutorial_py_contours_hierarchy.html
         contours, hierarchy = cv2.findContours(a, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
-
         contour_img = np.zeros_like(map_array)  # Create a blank image
-
         # Draw the contours on the blank image
         cv2.drawContours(contour_img, contours, -1, (255, 255, 255), thickness=1)
-
         # Save the image with contours for debugging
         cv2.imwrite(
             str(os.getcwd()) + f"/{model_name}/contour_image_final.png", contour_img
@@ -196,19 +186,20 @@ class MapConverter(Node):
 
         hierarchy = hierarchy[0]
         corner_idxs = [i for i in range(len(contours)) if hierarchy[i][3] == -1]
+
         return [contours[i] for i in corner_idxs]
 
     def contour_to_mesh(self, contour, metadata):
         """
         Converts 2D contours into a 3D mesh by extruding the contour lines.
 
-        This function takes in a set of 2D contour points and generates a 3D mesh by 
-        extruding the contour lines vertically. The height of the extrusion is 
-        determined by a predefined value, and the mesh is constructed using the 
+        This function takes in a set of 2D contour points and generates a 3D mesh by
+        extruding the contour lines vertically. The height of the extrusion is
+        determined by a predefined value, and the mesh is constructed using the
         `trimesh` library.
-        
+
         Processing Steps:
-            1. Iterates through each contour and converts the 2D points into real-world 
+            1. Iterates through each contour and converts the 2D points into real-world
             coordinates using `coords_to_loc`.
             2. Creates line segments from consecutive points in the contour.
             3. Extrudes the 2D line segments into a 3D shape using `trimesh.path.segments.extrude`.
@@ -216,14 +207,14 @@ class MapConverter(Node):
             5. Optionally displays the mesh for visualization.
 
         Args:
-            contour (list): A list of contours, where each contour is an array of 
+            contour (list): A list of contours, where each contour is an array of
             2D points representing the boundary of an occupied region in the map.
-            metadata (object): Metadata about the map, which contains information 
-            such as resolution and origin, used to convert map coordinates to 
+            metadata (object): Metadata about the map, which contains information
+            such as resolution and origin, used to convert map coordinates to
             actual world coordinates.
 
         Returns:
-            trimesh.Trimesh: A 3D mesh generated by extruding the 2D contour lines. 
+            trimesh.Trimesh: A 3D mesh generated by extruding the 2D contour lines.
             The mesh consists of vertices and faces that define the geometry.
         """
         height = np.array([0, 0, self.height])
@@ -235,9 +226,7 @@ class MapConverter(Node):
                 x, y = points[0]
                 print(x, y)
                 new_point = self.coords_to_loc((x, y), metadata)
-
                 new_point_array.append(new_point)
-            
             # To create a segment we need to pass 2 points as a pair.
             segment = np.array(
                 [
@@ -245,41 +234,39 @@ class MapConverter(Node):
                     for i in range(len(new_point_array) - 1)
                 ]
             )
-            if (len(segment)>0):
+            if len(segment) > 0:
                 height = self.height
                 vertices, faces = trimesh.path.segments.extrude(
                     segments=segment,
                     height=height,
                     double_sided=False,  # Set to True if you want double-sided extrusion
                 )
-
                 mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
-                # mesh.show()
-                # break
                 meshes.append(mesh)
         mesh = trimesh.util.concatenate(meshes)
         mesh.show()
         mesh.remove_duplicate_faces()
+
         return mesh
 
     def coords_to_loc(self, coords, metadata):
         """
         Converts 2D map coordinates to real-world locations using map metadata.
 
-        This function transforms the given 2D coordinates from the map frame 
-        into real-world locations by applying the map's resolution and origin 
-        information from the metadata. The transformation assumes that the origin 
+        This function transforms the given 2D coordinates from the map frame
+        into real-world locations by applying the map's resolution and origin
+        information from the metadata. The transformation assumes that the origin
         has no rotation and is at a z-height of zero.
 
         Args:
-            coords (tuple): A tuple (x, y) representing the 2D coordinates in the 
+            coords (tuple): A tuple (x, y) representing the 2D coordinates in the
             map frame.
-            metadata (object): An object containing the map metadata, including 
-            resolution and origin. This metadata is used to scale and shift 
+            metadata (object): An object containing the map metadata, including
+            resolution and origin. This metadata is used to scale and shift
             the coordinates to the real-world frame.
 
         Returns:
-            list: A list [loc_x, loc_y] representing the real-world coordinates 
+            list: A list [loc_x, loc_y] representing the real-world coordinates
             corresponding to the input map coordinates.
         """
         x, y = coords
@@ -293,17 +280,17 @@ class MapConverter(Node):
         """
         Creates a directory structure for a Gazebo model and world simulation.
 
-        This function generates the necessary folders and files for a Gazebo 
-        simulation, including directories for model, world, and mesh data. It also 
-        creates placeholder configuration files (`model.config`, `model.sdf`, and 
-        `world.sdf`) with predefined content based on the provided model name and 
+        This function generates the necessary folders and files for a Gazebo
+        simulation, including directories for model, world, and mesh data. It also
+        creates placeholder configuration files (`model.config`, `model.sdf`, and
+        `world.sdf`) with predefined content based on the provided model name and
         mesh type.
 
         Args:
-            model_name (str): The name of the model for which the project structure 
-                is created. This name is used to define folder paths and file 
+            model_name (str): The name of the model for which the project structure
+                is created. This name is used to define folder paths and file
                 content.
-            mesh_type (str): The mesh file format to be used in the model (e.g., 
+            mesh_type (str): The mesh file format to be used in the model (e.g.,
                 "stl", "dae").
         """
         # Create the root folder
