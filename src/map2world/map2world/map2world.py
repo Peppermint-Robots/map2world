@@ -83,12 +83,12 @@ class MapConverter(Node):
         based on the specified `mesh_type`.
 
         Workflow:
-        1. Prompts the user for a model name.
-        2. Processes the incoming occupancy grid map to reshape the data.
-        3. Converts unknown (-1) map values to unoccupied (0).
-        4. Identifies occupied regions using contours.
-        5. Generates a 3D mesh model by extruding the contours.
-        6. Exports the resulting mesh as STL or DAE based on the user's choice.
+            1. Prompts the user for a model name.
+            2. Processes the incoming occupancy grid map to reshape the data.
+            3. Converts unknown (-1) map values to unoccupied (0).
+            4. Identifies occupied regions using contours.
+            5. Generates a 3D mesh model by extruding the contours.
+            6. Exports the resulting mesh as STL or DAE based on the user's choice.
 
         Args:
             map_msg (nav_msgs.msg.OccupancyGrid): ROS OccupancyGrid message containing
@@ -126,14 +126,14 @@ class MapConverter(Node):
 
     def get_occupied_regions(self, map_array, model_name):
         """
-            Identifies occupied regions in a 2D map using contour detection.
+        Identifies occupied regions in a 2D map using contour detection.
 
         This function processes the input 2D occupancy grid map by applying several
         image processing techniques, such as thresholding, Gaussian blur, and contour
         detection, to identify regions that are considered occupied. The detected
         contours represent the boundaries of the occupied areas in the map.
 
-        Processing Steps:
+        Workflow:
             1. Converts the occupancy grid map to an 8-bit unsigned integer format.
             2. Applies a binary threshold to the map to separate occupied and unoccupied regions.
             3. Blurs the thresholded image using a Gaussian filter and applies an inverse
@@ -198,7 +198,7 @@ class MapConverter(Node):
         determined by a predefined value, and the mesh is constructed using the
         `trimesh` library.
 
-        Processing Steps:
+        Workflow:
             1. Iterates through each contour and converts the 2D points into real-world
             coordinates using `coords_to_loc`.
             2. Creates line segments from consecutive points in the contour.
