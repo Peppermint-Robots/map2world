@@ -4,7 +4,7 @@ import trimesh
 from matplotlib.tri import Triangulation
 from pathlib import Path
 import os
-
+import math
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
@@ -14,6 +14,8 @@ from rclpy.qos import (
     QoSReliabilityPolicy,
 )
 from nav_msgs.msg import OccupancyGrid
+from ament_index_python.packages import get_package_share_directory
+from shapely.geometry import Polygon
 
 # Make sure to have pycollada pip package installed for the DAE build to work.
 
@@ -25,14 +27,12 @@ class MapConverter(Node):
         self.declare_parameter("mesh_type", "dae")
         self.declare_parameter("occupied_threshold", 1)
         self.declare_parameter("box_height", 2.0)
-        self.declare_parameter("gauss_blur", 7)
-        # by increasing blur thresh by greater factor you will make the blurred noise stronger, and for very large value the map will become blank
-        self.declare_parameter("edge_strength", 15)
-        self.declare_parameter("median_blur", 9)
-        # used to decide whether you want to apply slight blur before creating 3d map.
-        # blur helps to smudge the edges so they apper to continuous to the contour
-        # detection and the gaps in the wall due to sensor error is removed.
-        self.declare_parameter("blur_factor", 3)
+        self.declare_parameter("package_name", "sim_models_ppmt")
+        self.declare_parameter("model_name", "new_model")
+        self.declare_parameter("red", 0)
+        self.declare_parameter("green", 0)
+        self.declare_parameter("blue", 0)
+        
 
         map_topic = self.get_parameter("map_topic").get_parameter_value().string_value
         self.mesh_type = (
@@ -44,18 +44,16 @@ class MapConverter(Node):
         self.height = (
             self.get_parameter("box_height").get_parameter_value().double_value
         )
-        self.gauss_blur = (
-            self.get_parameter("gauss_blur").get_parameter_value().integer_value
+        self.package_name = (
+            self.get_parameter("package_name").get_parameter_value().string_value
         )
-        self.edge_strength = (
-            self.get_parameter("edge_strength").get_parameter_value().integer_value
+        self.model_name = (
+            self.get_parameter("model_name").get_parameter_value().string_value
         )
-        self.median_blur = (
-            self.get_parameter("median_blur").get_parameter_value().integer_value
-        )
-        self.blur_factor = (
-            self.get_parameter("blur_factor").get_parameter_value().integer_value
-        )
+
+        self.red = self.get_parameter("red").get_parameter_value().integer_value
+        self.green = self.get_parameter("green").get_parameter_value().integer_value
+        self.blue = self.get_parameter("blue").get_parameter_value().integer_value
 
         map_sub_qos = QoSProfile(
             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
@@ -67,7 +65,7 @@ class MapConverter(Node):
         self.test_map_sub = self.create_subscription(
             OccupancyGrid, map_topic, self.map_callback, qos_profile=map_sub_qos
         )
-        self.export_dir = str(os.getcwd())
+        # self.export_dir = str(os.getcwd())
         # Probably there's some way to get trimesh logs to point to ROS
         # logs, but I don't know it.  Uncomment the below if something
         # goes wrong with trimesh to get the logs to print to stdout.
@@ -82,129 +80,133 @@ class MapConverter(Node):
         of those regions. The resulting mesh can be exported in STL or DAE format
         based on the specified `mesh_type`.
 
-        Workflow:
-            1. Prompts the user for a model name.
-            2. Processes the incoming occupancy grid map to reshape the data.
-            3. Converts unknown (-1) map values to unoccupied (0).
-            4. Identifies occupied regions using contours.
-            5. Generates a 3D mesh model by extruding the contours.
-            6. Exports the resulting mesh as STL or DAE based on the user's choice.
-
         Args:
             map_msg (nav_msgs.msg.OccupancyGrid): ROS OccupancyGrid message containing
             the 2D map data.
         """
         self.get_logger().info("Lets trun 2D map into 3D maps!.")
-        model_name = input("\nEnter the model name: ")
-        self.create_project_structure(model_name=model_name, mesh_type=self.mesh_type)
+        model_name = self.model_name
+        package_path = str(get_package_share_directory(self.package_name))
+        self.create_project_structure(
+            model_name=model_name, mesh_type=self.mesh_type, package_path=package_path
+        )
         self.get_logger().info("Received map. Processing.")
         map_dims = (map_msg.info.height, map_msg.info.width)
         map_array = np.array(map_msg.data).reshape(map_dims)
 
         # set all -1 (unknown) values to 0 (unoccupied)
         map_array[map_array < 0] = 0
-        contours = self.get_occupied_regions(map_array, model_name)
+        contours = self.get_occupied_regions(map_array)
         meshes = self.contour_to_mesh(contours, map_msg.info)
 
-        mesh = trimesh.util.concatenate(meshes)
-
+        mesh_wall = trimesh.util.concatenate(meshes[0])
+        mesh_line = trimesh.util.concatenate(meshes[1])
         # Export as STL or DAE
         mesh_type = self.mesh_type
-        export_dir = self.export_dir
+
         if mesh_type == "stl":
             with open(
-                export_dir + f"/{model_name}/{model_name}/meshes/{model_name}.stl", "wb"
+                package_path + f"/models/{model_name}/meshes/{model_name}_wall.stl",
+                "wb",
+                # export_dir + f"/{model_name}/{model_name}/meshes/{model_name}.stl", "wb"
             ) as f:
-                mesh.export(f, "stl")
-            self.get_logger().info("Exported STL. Shutting down this node now.")
-        elif mesh_type == "dae":
+                mesh_wall.export(f, "stl")
             with open(
-                export_dir + f"/{model_name}/{model_name}/meshes/{model_name}.dae", "wb"
+                package_path + f"/models/{model_name}/meshes/{model_name}_line.stl",
+                "wb",
+                # export_dir + f"/{model_name}/{model_name}/meshes/{model_name}.stl", "wb"
             ) as f:
-                f.write(trimesh.exchange.dae.export_collada(mesh))
+                mesh_line.export(f, "stl")
+            self.get_logger().info("Exported STL. Shutting down this node now.")
+        if mesh_type == "dae":
+            with open(
+                package_path + f"/models/{model_name}/meshes/{model_name}_wall.dae", "wb"
+            ) as f:
+                f.write(trimesh.exchange.dae.export_collada(mesh_wall))
+            with open(
+                package_path + f"/models/{model_name}/meshes/{model_name}_line.dae", "wb"
+            ) as f:
+                f.write(trimesh.exchange.dae.export_collada(mesh_line))
             self.get_logger().info("Exported DAE. Shutting down this node now.")
 
-    def get_occupied_regions(self, map_array, model_name):
+    def get_occupied_regions(self, map_array):
         """
         Identifies occupied regions in a 2D map using contour detection.
 
-        This function processes the input 2D occupancy grid map by applying several
-        image processing techniques, such as thresholding, Gaussian blur, and contour
+        This function processes the input 2D occupancy grid map and perform contour
         detection, to identify regions that are considered occupied. The detected
         contours represent the boundaries of the occupied areas in the map.
 
-        Workflow:
-            1. Converts the occupancy grid map to an 8-bit unsigned integer format.
-            2. Applies a binary threshold to the map to separate occupied and unoccupied regions.
-            3. Blurs the thresholded image using a Gaussian filter and applies an inverse
-               binary threshold to create a mask.
-            4. Applies median blur to the mask and performs a bitwise AND operation with
-               the original thresholded image to isolate edges.
-            5. Finds contours using OpenCV's `RETR_CCOMP` method, which classifies external
-               and internal contours separately.
-            6. Saves the contour image for debugging and returns the external contours
-               representing occupied regions.
+        Args:
+            map_array (numpy.ndarray): A 2D numpy array representing the occupancy grid map.
+            The map contains occupancy values where -1 indicates unknown, 0 indicates
+            unoccupied, and positive values indicate occupied regions.
+            model_name (str): The name of the model, used for saving contour images
+            for debugging purposes.
 
-            Args:
-                map_array (numpy.ndarray): A 2D numpy array representing the occupancy grid map.
-                The map contains occupancy values where -1 indicates unknown, 0 indicates
-                unoccupied, and positive values indicate occupied regions.
-                model_name (str): The name of the model, used for saving contour images
-                for debugging purposes.
-
-            Returns:
-                list: A list of contours where each contour represents an occupied region
-                in the 2D map. Each contour is a numpy array of points that define the boundary
-                of the region.
+        Returns:
+            list: A list of contours where each contour represents an occupied region
+            in the 2D map. Each contour is a numpy array of points that define the boundary
+            of the region.
         """
         map_array = map_array.astype(np.uint8)
-        _, thresh_img = cv2.threshold(map_array, self.threshold, 255, cv2.THRESH_BINARY)
-        blurred_img = cv2.GaussianBlur(
-            thresh_img, (self.gauss_blur, self.gauss_blur), self.gauss_blur
+        contour_img = np.zeros_like(map_array)
+        output = np.zeros_like(map_array)
+        output_line = np.zeros_like(map_array) 
+        # if self.mode=="line":
+            # map_array = cv2.blur(map_array, (5,5))
+        contours, hierarchy = cv2.findContours(
+            map_array, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
         )
-        thresh_blur, thresh_blur_img = cv2.threshold(
-            blurred_img, self.edge_strength, 255, cv2.THRESH_BINARY_INV
-        )
-        medianblur = cv2.medianBlur(thresh_blur_img, self.median_blur)
-        final_img = cv2.bitwise_and(thresh_img, medianblur)
-        a = cv2.subtract(thresh_img, final_img)
-        a = cv2.blur(a, (self.blur_factor, self.blur_factor))
-
-        # Using cv2.RETR_CCOMP classifies external contours at top level of
-        # hierarchy and interior contours at second level.
-        # If the whole space is enclosed by walls RETR_EXTERNAL will exclude
-        # all interior obstacles e.g. furniture.
-        # https://docs.opencv.org/trunk/d9/d8b/tutorial_py_contours_hierarchy.html
-        contours, hierarchy = cv2.findContours(a, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
-        contour_img = np.zeros_like(map_array)  # Create a blank image
-        # Draw the contours on the blank image
+        # Draw the inner path contours
         cv2.drawContours(contour_img, contours, -1, (255, 255, 255), thickness=1)
-        # Save the image with contours for debugging
-        cv2.imwrite(
-            str(os.getcwd()) + f"/{model_name}/contour_image_final.png", contour_img
+        
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(map_array, connectivity=8)
+        
+        for j in range(1, num_labels):
+            cv2.putText(contour_img, str(j), (int(centroids[j][0]),int(centroids[j][1])) , cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (255,255,255), 1)
+        
+        cv2.imshow("Component Ids", contour_img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        path_id = input("Enter which path are required (give it in space seperated format):")
+        path_ids = path_id.split(' ')
+        
+        for label in range(1, num_labels):
+            if str(label) not in path_ids:
+                component_mask = (labels == label).astype("uint8") * 255
+                output = cv2.bitwise_or(output, component_mask)
+            else:
+                component_mask = (labels == label).astype("uint8") * 255
+                output_line = cv2.bitwise_or(output_line, component_mask)
+                
+        
+        contours_wall, hierarchy_wall = cv2.findContours(
+            output, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
         )
-
-        hierarchy = hierarchy[0]
-        corner_idxs = [i for i in range(len(contours)) if hierarchy[i][3] == -1]
-
-        return [contours[i] for i in corner_idxs]
-
+        
+        hierarchy_wall = hierarchy_wall[0]
+        corner_idxs_wall = [i for i in range(len(contours_wall)) if hierarchy_wall[i][3] == -1]     
+        
+        contours_line, hierarchy_line = cv2.findContours(
+            output_line, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
+        )
+        
+        if len(contours_line) !=0: 
+            hierarchy_line = hierarchy_line[0]
+            corner_idxs_line = [i for i in range(len(contours_line)) if hierarchy_line[i][3] == -1]
+            return [[contours_wall[i] for i in corner_idxs_wall], [contours_line[i] for i in corner_idxs_line]]
+        else:
+            return [[contours_wall[i] for i in corner_idxs_wall],""]
+            
     def contour_to_mesh(self, contour, metadata):
         """
         Converts 2D contours into a 3D mesh by extruding the contour lines.
 
         This function takes in a set of 2D contour points and generates a 3D mesh by
         extruding the contour lines vertically. The height of the extrusion is
-        determined by a predefined value, and the mesh is constructed using the
+        determined by a predefined valuezz, and the mesh is constructed using the
         `trimesh` library.
-
-        Workflow:
-            1. Iterates through each contour and converts the 2D points into real-world
-            coordinates using `coords_to_loc`.
-            2. Creates line segments from consecutive points in the contour.
-            3. Extrudes the 2D line segments into a 3D shape using `trimesh.path.segments.extrude`.
-            4. Combines the individual meshes into a single mesh and removes duplicate faces.
-            5. Optionally displays the mesh for visualization.
 
         Args:
             contour (list): A list of contours, where each contour is an array of
@@ -217,37 +219,63 @@ class MapConverter(Node):
             trimesh.Trimesh: A 3D mesh generated by extruding the 2D contour lines.
             The mesh consists of vertices and faces that define the geometry.
         """
-        height = np.array([0, 0, self.height])
-        s3 = 3**0.5 / 3.0
-        meshes = []
-        for point in contour:
+        
+        meshes_line = []
+        meshes_wall = []
+       
+        for point in contour[0]:
             new_point_array = []
             for points in point:
                 x, y = points[0]
-                print(x, y)
                 new_point = self.coords_to_loc((x, y), metadata)
                 new_point_array.append(new_point)
-            # To create a segment we need to pass 2 points as a pair.
-            segment = np.array(
-                [
-                    [new_point_array[i], new_point_array[i + 1]]
-                    for i in range(len(new_point_array) - 1)
-                ]
-            )
-            if len(segment) > 0:
-                height = self.height
-                vertices, faces = trimesh.path.segments.extrude(
-                    segments=segment,
-                    height=height,
-                    double_sided=False,  # Set to True if you want double-sided extrusion
-                )
-                mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
-                meshes.append(mesh)
-        mesh = trimesh.util.concatenate(meshes)
+            height = self.height
+            pixel_size = metadata.resolution
+            
+            for p in new_point_array:
+                x, y = p
+                # Create a small square around the pixel
+                pixel_polygon = Polygon([
+                    (x, y),  
+                    (x + pixel_size, y), 
+                    (x + pixel_size, y + pixel_size),  
+                    (x, y + pixel_size)  
+                ])
+               
+                mesh_wall = trimesh.creation.extrude_polygon(pixel_polygon, height)
+                meshes_wall.append(mesh_wall)
+                
+        if contour[1] != "":        
+            for point in contour[1]:
+                new_point_array = []
+                for points in point:
+                    x, y = points[0]
+                    new_point = self.coords_to_loc((x, y), metadata)
+                    new_point_array.append(new_point)
+
+                height = 0.001
+                pixel_size = metadata.resolution  
+                
+                for p in new_point_array:
+                    x, y = p
+                    # Create a small square around the pixel
+                    pixel_polygon = Polygon([
+                        (x, y),  
+                        (x + pixel_size, y), 
+                        (x + pixel_size, y + pixel_size),
+                        (x, y + pixel_size)  
+                    ])
+                   
+                    mesh_line = trimesh.creation.extrude_polygon(pixel_polygon, height)
+                    face_colors = [self.red,self.green,self.blue]
+                    mesh_line.visual.face_colors = face_colors
+                    meshes_line.append(mesh_line)
+        
+        mesh = trimesh.util.concatenate(meshes_wall, meshes_line)
         mesh.show()
         mesh.remove_duplicate_faces()
 
-        return mesh
+        return [meshes_wall, meshes_line]
 
     def coords_to_loc(self, coords, metadata):
         """
@@ -274,9 +302,9 @@ class MapConverter(Node):
         loc_y = y * metadata.resolution + metadata.origin.position.y
         # TODO: transform (x*res, y*res, 0.0) by Pose map_metadata.origin
         # instead of assuming origin is at z=0 with no rotation wrt map frame
-        return [loc_x, loc_y]
+        return (loc_x, loc_y)
 
-    def create_project_structure(self, model_name, mesh_type):
+    def create_project_structure(self, model_name, mesh_type, package_path):
         """
         Creates a directory structure for a Gazebo model and world simulation.
 
@@ -294,25 +322,31 @@ class MapConverter(Node):
                 "stl", "dae").
         """
         # Create the root folder
-        if not os.path.exists(model_name):
-            os.makedirs(model_name)
+        if Path(package_path).exists():
+            print(f"Found directory: {package_path}")
 
         # Define subfolders and files
-        model_folder = os.path.join(model_name, f"{model_name}")
-        world_folder = os.path.join(model_name, "world")
-        meshes_folder = os.path.join(model_folder, "meshes")
 
-        # Create model and world folders
-        os.makedirs(model_folder, exist_ok=True)
-        os.makedirs(world_folder, exist_ok=True)
+        model_folder = Path(package_path + f"/models/{model_name}")
+        world_folder = Path(package_path + f"/worlds")
+        meshes_folder = Path(str(model_folder) + f"/meshes")
+        if not model_folder.exists():
+            model_folder.mkdir(
+                parents=True
+            )  # Create the folder including any necessary parent directories
+            print(f"Folder '{model_folder}' created.")
 
-        # Create the meshes folder inside the model folder
-        os.makedirs(meshes_folder, exist_ok=True)
+        if not world_folder.exists():
+            world_folder.mkdir(
+                parents=True
+            )  # Create the folder including any necessary parent directories
+            print(f"Folder '{world_folder}' created.")
 
-        # Create the model.config and model.sdf files inside the model folder
-        model_config_path = os.path.join(model_folder, "model.config")
-        model_sdf_path = os.path.join(model_folder, "model.sdf")
-        world_sdf_path = os.path.join(world_folder, f"{model_name}.sdf")
+        if not meshes_folder.exists():
+            meshes_folder.mkdir(
+                parents=True
+            )  # Create the folder including any necessary parent directories
+            print(f"Folder '{meshes_folder}' created.")
 
         config_content = f"""<?xml version="1.0"?>
 <model>
@@ -322,7 +356,6 @@ class MapConverter(Node):
 
 <author>
     <name>Peppermint Robotics</name>
-    <email>Robotics Team</email>
 </author>
 
 <description>
@@ -336,17 +369,31 @@ Model of {model_name.replace('_', ' ')}.
     <model name="{model_name}">
         <static>true</static>
         <link name="base">
-            <collision name="collision">
+            <collision name="collision_wall">
                 <geometry>
                     <mesh>
-                        <uri>meshes/{model_name}.{mesh_type}</uri>
+                        <uri>meshes/{model_name}_wall.{mesh_type}</uri>
                     </mesh>
                 </geometry>
             </collision>
-            <visual name="visual">
+            <collision name="collision_line">
                 <geometry>
                     <mesh>
-                        <uri>meshes/{model_name}.{mesh_type}</uri>
+                        <uri>meshes/{model_name}_line.{mesh_type}</uri>
+                    </mesh>
+                </geometry>
+            </collision>
+            <visual name="visual_wall">
+                <geometry>
+                    <mesh>
+                        <uri>meshes/{model_name}_wall.{mesh_type}</uri>
+                    </mesh>
+                </geometry>
+            </visual>
+            <visual name="visual_line">
+                <geometry>
+                    <mesh>
+                        <uri>meshes/{model_name}_line.{mesh_type}</uri>
                     </mesh>
                 </geometry>
             </visual>
@@ -422,13 +469,13 @@ Model of {model_name.replace('_', ' ')}.
 </sdf>
 """
         # Write placeholder content to the files
-        with open(model_config_path, "w") as config_file:
+        with open(str(model_folder) + f"/model.config", "w") as config_file:
             config_file.write(config_content)
 
-        with open(model_sdf_path, "w") as model_sdf_file:
+        with open(str(model_folder) + f"/model.sdf", "w") as model_sdf_file:
             model_sdf_file.write(model_content)
 
-        with open(world_sdf_path, "w") as world_sdf_file:
+        with open(str(world_folder) + f"/{model_name}.sdf", "w") as world_sdf_file:
             world_sdf_file.write(world_content)
 
         print(f"Project structure created successfully in '{model_name}'.")
