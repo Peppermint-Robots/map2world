@@ -29,10 +29,11 @@ class MapConverter(Node):
         self.declare_parameter("box_height", 2.0)
         self.declare_parameter("package_name", "sim_models_ppmt")
         self.declare_parameter("model_name", "new_model")
-        self.declare_parameter("red", 0)
+        self.declare_parameter("img_path", "-1")
+        self.declare_parameter("map_mode", "clean")
+        self.declare_parameter("red", 255)
         self.declare_parameter("green", 0)
         self.declare_parameter("blue", 0)
-        
 
         map_topic = self.get_parameter("map_topic").get_parameter_value().string_value
         self.mesh_type = (
@@ -50,7 +51,15 @@ class MapConverter(Node):
         self.model_name = (
             self.get_parameter("model_name").get_parameter_value().string_value
         )
-
+        
+        self.img_path = (
+            self.get_parameter("img_path").get_parameter_value().string_value
+        )
+        
+        self.map_mode = (
+            self.get_parameter("map_mode").get_parameter_value().string_value
+        )
+        
         self.red = self.get_parameter("red").get_parameter_value().integer_value
         self.green = self.get_parameter("green").get_parameter_value().integer_value
         self.blue = self.get_parameter("blue").get_parameter_value().integer_value
@@ -70,37 +79,43 @@ class MapConverter(Node):
         # logs, but I don't know it.  Uncomment the below if something
         # goes wrong with trimesh to get the logs to print to stdout.
         # trimesh.util.attach_to_log()
+        
+        self.template_path = "/home/manan/Documents/map2world/src/map2world/templates/"
 
     def map_callback(self, map_msg):
-        """
-        Processes a 2D occupancy grid map and converts it into a 3D mesh model.
-
-        This function subscribes to a 2D occupancy grid map, processes the data to
-        identify occupied regions, and generates a 3D mesh model from the contours
-        of those regions. The resulting mesh can be exported in STL or DAE format
-        based on the specified `mesh_type`.
+        """Processes a 2D map message and converts it into a 3D map by generating
+            3D meshes (STL or DAE) for the occupied regions. The method also exports 
+            the generated 3D meshes to the appropriate file format.
 
         Args:
-            map_msg (nav_msgs.msg.OccupancyGrid): ROS OccupancyGrid message containing
-            the 2D map data.
+            map_msg (MapMessage): The map message containing the 2D occupancy grid 
+            with the map's metadata (e.g., width, height, resolution).
         """
         self.get_logger().info("Lets trun 2D map into 3D maps!.")
+        
         model_name = self.model_name
         package_path = str(get_package_share_directory(self.package_name))
         self.create_project_structure(
             model_name=model_name, mesh_type=self.mesh_type, package_path=package_path
         )
+
         self.get_logger().info("Received map. Processing.")
         map_dims = (map_msg.info.height, map_msg.info.width)
         map_array = np.array(map_msg.data).reshape(map_dims)
 
         # set all -1 (unknown) values to 0 (unoccupied)
         map_array[map_array < 0] = 0
-        contours = self.get_occupied_regions(map_array)
+        
+        if self.map_mode == "line":
+            if (self.img_path == "-1"):
+                self.img_path = input("Please provide image path: ")
+            
+        contours = self.get_occupied_regions(map_array, self.img_path)
         meshes = self.contour_to_mesh(contours, map_msg.info)
 
         mesh_wall = trimesh.util.concatenate(meshes[0])
         mesh_line = trimesh.util.concatenate(meshes[1])
+        
         # Export as STL or DAE
         mesh_type = self.mesh_type
 
@@ -108,116 +123,112 @@ class MapConverter(Node):
             with open(
                 package_path + f"/models/{model_name}/meshes/{model_name}_wall.stl",
                 "wb",
-                # export_dir + f"/{model_name}/{model_name}/meshes/{model_name}.stl", "wb"
             ) as f:
                 mesh_wall.export(f, "stl")
-            with open(
-                package_path + f"/models/{model_name}/meshes/{model_name}_line.stl",
-                "wb",
-                # export_dir + f"/{model_name}/{model_name}/meshes/{model_name}.stl", "wb"
-            ) as f:
-                mesh_line.export(f, "stl")
+            if self.map_mode == "line":
+                with open(
+                    package_path + f"/models/{model_name}/meshes/{model_name}_line.stl",
+                    "wb",
+                ) as f:
+                    mesh_line.export(f, "stl")
+                
             self.get_logger().info("Exported STL. Shutting down this node now.")
+            
+            
         if mesh_type == "dae":
             with open(
                 package_path + f"/models/{model_name}/meshes/{model_name}_wall.dae", "wb"
             ) as f:
                 f.write(trimesh.exchange.dae.export_collada(mesh_wall))
-            with open(
-                package_path + f"/models/{model_name}/meshes/{model_name}_line.dae", "wb"
-            ) as f:
-                f.write(trimesh.exchange.dae.export_collada(mesh_line))
+            if self.map_mode == "line":
+                with open(
+                    package_path + f"/models/{model_name}/meshes/{model_name}_line.dae", "wb"
+                ) as f:
+                    f.write(trimesh.exchange.dae.export_collada(mesh_line))
+                
             self.get_logger().info("Exported DAE. Shutting down this node now.")
 
-    def get_occupied_regions(self, map_array):
-        """
-        Identifies occupied regions in a 2D map using contour detection.
-
-        This function processes the input 2D occupancy grid map and perform contour
-        detection, to identify regions that are considered occupied. The detected
-        contours represent the boundaries of the occupied areas in the map.
+    def get_occupied_regions(self, map_array, img_loc):
+        """Identifies and returns the occupied regions (walls and/or paths) in the map using contours.
+           Depending on the `map_mode` ("clean" or "line"), it processes the map differently and extracts the 
+           necessary contours for 3D mesh generation.
 
         Args:
-            map_array (numpy.ndarray): A 2D numpy array representing the occupancy grid map.
-            The map contains occupancy values where -1 indicates unknown, 0 indicates
-            unoccupied, and positive values indicate occupied regions.
-            model_name (str): The name of the model, used for saving contour images
-            for debugging purposes.
+            map_array (numpy.ndarray): A 2D numpy array representing the map's occupancy grid.
+            img_loc (str): The file path to an image used when `map_mode` is "line".
 
         Returns:
-            list: A list of contours where each contour represents an occupied region
-            in the 2D map. Each contour is a numpy array of points that define the boundary
-            of the region.
+            list: Contours list representing the contours of walls in the map.
+            and second contours list representing the lines (paths) if `map_mode` is "line", 
+            otherwise an empty string ("").
         """
+        
         map_array = map_array.astype(np.uint8)
-        contour_img = np.zeros_like(map_array)
-        output = np.zeros_like(map_array)
-        output_line = np.zeros_like(map_array) 
-        # if self.mode=="line":
-            # map_array = cv2.blur(map_array, (5,5))
-        contours, hierarchy = cv2.findContours(
+        
+        if self.map_mode == "clean":
+            
+            # Using cv2.RETR_CCOMP classifies external contours at top level of
+            # hierarchy and interior contours at second level.  
+            # If the whole space is enclosed by walls RETR_EXTERNAL will exclude
+            # all interior obstacles e.g. furniture.
+            # https://docs.opencv.org/trunk/d9/d8b/tutorial_py_contours_hierarchy.html
+            
+            contours_wall, hierarchy_wall = cv2.findContours(
             map_array, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
-        )
-        # Draw the inner path contours
-        cv2.drawContours(contour_img, contours, -1, (255, 255, 255), thickness=1)
+            )
+    
+            hierarchy_wall = hierarchy_wall[0]
+            corner_idxs_wall = [i for i in range(len(contours_wall)) if hierarchy_wall[i][3] == -1] 
+            
+            return [[contours_wall[i] for i in corner_idxs_wall],""]
+    
+        if self.map_mode == "line":
+            
+            img = cv2.imread(img_loc)
+            img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            
+            img_gray[(5 < img_gray) & (img_gray < 250)] = 255  #used to remove the path to identify walls
+            img_gray = cv2.flip(img_gray, 0)    #flipping the image so that its aligned with map_array
+            img_gray = cv2.bitwise_not(img_gray)
+            
+            img_walls = cv2.bitwise_and(img_gray, map_array)
+            contours_wall, hierarchy_wall = cv2.findContours(
+                img_walls, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
+            )
+            
+            hierarchy_wall = hierarchy_wall[0]
+            corner_idxs_wall = [i for i in range(len(contours_wall)) if hierarchy_wall[i][3] == -1]     
+            
+            hsvFrame = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+            red_lower = np.array([0, 120, 70], np.uint8) 
+            red_upper = np.array([180, 255, 255], np.uint8) 
+            img_path = cv2.inRange(hsvFrame, red_lower, red_upper)
+            img_path = cv2.flip(img_path, 0)    #flipping the image so that its aligned with map_array
         
-        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(map_array, connectivity=8)
-        
-        for j in range(1, num_labels):
-            cv2.putText(contour_img, str(j), (int(centroids[j][0]),int(centroids[j][1])) , cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (255,255,255), 1)
-        
-        cv2.imshow("Component Ids", contour_img)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        path_id = input("Enter which path are required (give it in space seperated format):")
-        path_ids = path_id.split(' ')
-        
-        for label in range(1, num_labels):
-            if str(label) not in path_ids:
-                component_mask = (labels == label).astype("uint8") * 255
-                output = cv2.bitwise_or(output, component_mask)
-            else:
-                component_mask = (labels == label).astype("uint8") * 255
-                output_line = cv2.bitwise_or(output_line, component_mask)
-                
-        
-        contours_wall, hierarchy_wall = cv2.findContours(
-            output, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
-        )
-        
-        hierarchy_wall = hierarchy_wall[0]
-        corner_idxs_wall = [i for i in range(len(contours_wall)) if hierarchy_wall[i][3] == -1]     
-        
-        contours_line, hierarchy_line = cv2.findContours(
-            output_line, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
-        )
-        
-        if len(contours_line) !=0: 
+            contours_line, hierarchy_line = cv2.findContours(
+                img_path, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
+            )
+            
             hierarchy_line = hierarchy_line[0]
             corner_idxs_line = [i for i in range(len(contours_line)) if hierarchy_line[i][3] == -1]
             return [[contours_wall[i] for i in corner_idxs_wall], [contours_line[i] for i in corner_idxs_line]]
-        else:
-            return [[contours_wall[i] for i in corner_idxs_wall],""]
-            
+        
+        
     def contour_to_mesh(self, contour, metadata):
-        """
-        Converts 2D contours into a 3D mesh by extruding the contour lines.
-
-        This function takes in a set of 2D contour points and generates a 3D mesh by
-        extruding the contour lines vertically. The height of the extrusion is
-        determined by a predefined valuezz, and the mesh is constructed using the
-        `trimesh` library.
+        """Converts 2D contours into 3D meshes by extruding the contour polygons.
+           This method processes both wall and line contours (if present) and generates 
+           3D meshes using the `trimesh` library.
 
         Args:
-            contour (list): A list of contours, where each contour is an array of
-            2D points representing the boundary of an occupied region in the map.
-            metadata (object): Metadata about the map, which contains information
-            such as resolution and origin, used to convert map coordinates to
-            actual world coordinates.
+            contour (list): A list containing two elements:
+            - First element (list): Contours representing walls (required).
+            - Second element (list): Contours representing lines or paths (optional, may be an empty string).
+            metadata (MapMetaData): Metadata from the map
 
         Returns:
-            trimesh.Trimesh: A 3D mesh generated by extruding the 2D contour lines.
-            The mesh consists of vertices and faces that define the geometry.
+            list: A list containing two elements:
+            - First element (list): A list of `trimesh` meshes representing the walls.
+            - Second element (list): A list of `trimesh` meshes representing the lines (paths) if any, otherwise an empty list.
         """
         
         meshes_line = []
@@ -278,24 +289,15 @@ class MapConverter(Node):
         return [meshes_wall, meshes_line]
 
     def coords_to_loc(self, coords, metadata):
-        """
-        Converts 2D map coordinates to real-world locations using map metadata.
-
-        This function transforms the given 2D coordinates from the map frame
-        into real-world locations by applying the map's resolution and origin
-        information from the metadata. The transformation assumes that the origin
-        has no rotation and is at a z-height of zero.
+        """Converts pixel coordinates in the map to world coordinates using the map's metadata.
 
         Args:
-            coords (tuple): A tuple (x, y) representing the 2D coordinates in the
-            map frame.
-            metadata (object): An object containing the map metadata, including
-            resolution and origin. This metadata is used to scale and shift
-            the coordinates to the real-world frame.
+            coords (tuple): A tuple of (x, y) representing pixel coordinates in the 2D map grid.
+            metadata (MapMetaData): Metadata from the map.
 
         Returns:
-            list: A list [loc_x, loc_y] representing the real-world coordinates
-            corresponding to the input map coordinates.
+            tuple: A tuple of (loc_x, loc_y), the world coordinates corresponding to the input 
+            pixel coordinates.
         """
         x, y = coords
         loc_x = x * metadata.resolution + metadata.origin.position.x
@@ -303,30 +305,78 @@ class MapConverter(Node):
         # TODO: transform (x*res, y*res, 0.0) by Pose map_metadata.origin
         # instead of assuming origin is at z=0 with no rotation wrt map frame
         return (loc_x, loc_y)
-
-    def create_project_structure(self, model_name, mesh_type, package_path):
-        """
-        Creates a directory structure for a Gazebo model and world simulation.
-
-        This function generates the necessary folders and files for a Gazebo
-        simulation, including directories for model, world, and mesh data. It also
-        creates placeholder configuration files (`model.config`, `model.sdf`, and
-        `world.sdf`) with predefined content based on the provided model name and
-        mesh type.
+    
+    def write_model_data(self, model_name, mesh_type, model_folder, world_folder):
+        """Writes model and world data to SDF and configuration files by copying content 
+           from template files and replacing placeholders with the specified model name and mesh type.
 
         Args:
-            model_name (str): The name of the model for which the project structure
-                is created. This name is used to define folder paths and file
-                content.
-            mesh_type (str): The mesh file format to be used in the model (e.g.,
-                "stl", "dae").
+            model_name (str): The name of the model, used for replacing placeholders in the template files.
+            mesh_type (str): The type of mesh ("stl" or "dae") used in the model, replaced in the model SDF file.
+            model_folder (str): The folder path where the model files (SDF and config) will be saved.
+            world_folder (str): The folder path where the world SDF file will be saved.
+        """
+        
+        # Path to the template .sdf file
+        world_path = os.path.expanduser(self.template_path+'model_world.sdf')
+
+        with open(world_path, 'r') as world_file:
+            world_content = world_file.read()
+
+        world_content = world_content.replace('{model_name}', model_name)
+ 
+        with open(str(world_folder) + f"/{model_name}.sdf", "w") as world_sdf_file:
+            world_sdf_file.write(world_content)
+            
+        config_path = os.path.expanduser(self.template_path+'model.config')
+        
+        with open(config_path, 'r') as config_file:
+            config_content = config_file.read()
+
+        config_content = config_content.replace('{model_name}', model_name)
+        
+        with open(str(model_folder) + f"/model.config", "w") as config_file:
+            config_file.write(config_content)
+        
+        if self.map_mode == "clean":
+            model_path = os.path.expanduser(self.template_path+'model_clean.sdf')
+        
+            with open(model_path, 'r') as model_file:
+                model_content = model_file.read()
+
+            model_content = model_content.replace('{model_name}', model_name)
+            model_content = model_content.replace('{mesh_type}', mesh_type)
+
+            with open(str(model_folder) + f"/model.sdf", "w") as model_sdf_file:
+                model_sdf_file.write(model_content)
+        
+        if self.map_mode == "line":
+            model_path = os.path.expanduser(self.template_path+'model_line.sdf')
+        
+            with open(model_path, 'r') as model_file:
+                model_content = model_file.read()
+
+            model_content = model_content.replace('{model_name}', model_name)
+            model_content = model_content.replace('{mesh_type}', mesh_type)
+
+            with open(str(model_folder) + f"/model.sdf", "w") as model_sdf_file:
+                model_sdf_file.write(model_content)
+
+
+    def create_project_structure(self, model_name, mesh_type, package_path):
+        """Creates the directory structure for a new 3D model project, including model, world, and mesh folders, 
+           and writes necessary model and world data files based on templates.
+
+        Args:
+            model_name (str): The name of the model to be used in file paths and for naming the model folder.
+            mesh_type (str): The type of mesh ("stl" or "dae") used in the model.
+            package_path (str): The base directory where the project structure will be created
         """
         # Create the root folder
         if Path(package_path).exists():
             print(f"Found directory: {package_path}")
 
         # Define subfolders and files
-
         model_folder = Path(package_path + f"/models/{model_name}")
         world_folder = Path(package_path + f"/worlds")
         meshes_folder = Path(str(model_folder) + f"/meshes")
@@ -348,138 +398,8 @@ class MapConverter(Node):
             )  # Create the folder including any necessary parent directories
             print(f"Folder '{meshes_folder}' created.")
 
-        config_content = f"""<?xml version="1.0"?>
-<model>
-<name>{model_name}</name>
-<version>1.0</version>
-<sdf version="1.7">model.sdf</sdf>
-
-<author>
-    <name>Peppermint Robotics</name>
-</author>
-
-<description>
-Model of {model_name.replace('_', ' ')}.
-</description>
-</model>
-"""
-
-        model_content = f"""<?xml version="1.0"?>
-<sdf version="1.7">
-    <model name="{model_name}">
-        <static>true</static>
-        <link name="base">
-            <collision name="collision_wall">
-                <geometry>
-                    <mesh>
-                        <uri>meshes/{model_name}_wall.{mesh_type}</uri>
-                    </mesh>
-                </geometry>
-            </collision>
-            <collision name="collision_line">
-                <geometry>
-                    <mesh>
-                        <uri>meshes/{model_name}_line.{mesh_type}</uri>
-                    </mesh>
-                </geometry>
-            </collision>
-            <visual name="visual_wall">
-                <geometry>
-                    <mesh>
-                        <uri>meshes/{model_name}_wall.{mesh_type}</uri>
-                    </mesh>
-                </geometry>
-            </visual>
-            <visual name="visual_line">
-                <geometry>
-                    <mesh>
-                        <uri>meshes/{model_name}_line.{mesh_type}</uri>
-                    </mesh>
-                </geometry>
-            </visual>
-        </link>
-        <link name="ground_link">
-        <collision name="collision1">
-        <geometry>
-            <plane>
-            <normal>0 0 1</normal>
-            </plane>
-        </geometry>
-        </collision>
-        <visual name="visual1">
-        <geometry>
-            <plane>
-            <normal>0 0 1</normal>
-            <size>300 300</size>
-            </plane>
-        </geometry>
-        <material>
-            <ambient>0.7 0.7 0.7 1</ambient>
-            <diffuse>0.7 0.9 0 1</diffuse>
-            <specular>0 0 0 0</specular>
-            <emissive>0.7 0.7 0.7 0.7</emissive>
-        </material>
-        </visual>
-    </link>
-    </model>
-</sdf>
-"""
-
-        world_content = f"""<?xml version="1.0" ?>
-<sdf version="1.8">
-    <world name="{model_name}">
-    <!-- Physics -->
-        <plugin
-        filename="libignition-gazebo-physics-system.so"
-        name="ignition::gazebo::systems::Physics">
-        </plugin>
+        self.write_model_data(model_name, mesh_type, model_folder, world_folder)
         
-    <!-- Forwards simulation state to the GUI -->
-        <plugin
-        filename="libignition-gazebo-scene-broadcaster-system.so"
-        name="ignition::gazebo::systems::SceneBroadcaster">
-        </plugin>
-    
-    <!-- Processes user commands, like translate and create -->
-        <plugin
-        filename="libignition-gazebo-user-commands-system.so"
-        name="ignition::gazebo::systems::UserCommands">
-        </plugin>
-        
-    <!-- Generates rendering sensor data -->
-        <plugin
-        filename="libignition-gazebo-sensors-system.so"
-        name="ignition::gazebo::systems::Sensors">
-        <render_engine>ogre2</render_engine>
-        </plugin>
-        
-    <scene>
-        <ambient>1.0 1.0 1.0 1.0</ambient>
-        <background>0.8 0.8 0.8 1.0</background>
-        <grid>false</grid>
-        <origin_visual>false</origin_visual>
-        </scene>
-        
-        <include>
-        <pose>0 0 0 0 0 0</pose>
-        <uri>model://{model_name}</uri>
-    </include>
-
-    </world>
-</sdf>
-"""
-        # Write placeholder content to the files
-        with open(str(model_folder) + f"/model.config", "w") as config_file:
-            config_file.write(config_content)
-
-        with open(str(model_folder) + f"/model.sdf", "w") as model_sdf_file:
-            model_sdf_file.write(model_content)
-
-        with open(str(world_folder) + f"/{model_name}.sdf", "w") as world_sdf_file:
-            world_sdf_file.write(world_content)
-
-        print(f"Project structure created successfully in '{model_name}'.")
-
 
 def main():
     rclpy.init()
