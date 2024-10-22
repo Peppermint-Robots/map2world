@@ -283,6 +283,7 @@ class MapConverter(Node):
                     meshes_line.append(mesh_line)
         
         mesh = trimesh.util.concatenate(meshes_wall, meshes_line)
+        print("If you want to discard the mesh file press CTRL+C or else close the 3D preview using GUI")
         mesh.show()
         mesh.remove_duplicate_faces()
 
