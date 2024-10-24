@@ -80,7 +80,7 @@ class MapConverter(Node):
         # goes wrong with trimesh to get the logs to print to stdout.
         # trimesh.util.attach_to_log()
         
-        self.template_path = "/home/manan/Documents/map2world/src/map2world/templates/"
+        self.template_path = "~/Documents/map2world/src/map2world/templates/"
 
     def map_callback(self, map_msg):
         """Processes a 2D map message and converts it into a 3D map by generating
