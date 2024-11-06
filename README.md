@@ -27,6 +27,7 @@ map2gazebo Project URL: https://github.com/shilohc/map2gazebo
 - Do verify the location where the model is being saved (variable: package_path). By default it finds the share directory of package_name given.
 - Have a map server publishing the map to a topic. (One way to do is to run your Robotics Stack locally.)
 - Open a fresh terminal, `cd` into the directory where map2world was built, and source it (`source install/setup.bash`)
+- If you are using it for map generation of line follow map then replace the original image with the image having path at the loaction where original image was stored. 
 - Run map2world: `ros2 run map2world map2world --ros-args -p map_topic:={map_topic} -p mesh_type:={mesh_type} -p occupied_threshold:={occupied_threshold} -p box_height:={box_height} -p package_name:= {package_name} -p model_name:= {model_name} -p img_path:={img_path} -p map_mode:={map_mode} -p red:={red} -p green:={green} -p blue:={blue}`
     - Parameters Reference:
         - map_topic (Optional): Map Topic to which the map is being published. Default Value: _map_
@@ -35,8 +36,10 @@ map2gazebo Project URL: https://github.com/shilohc/map2gazebo
         - box_height (Optional): Height of the occupied voxel from ground in the 3D mesh. Default Value: _2.0_
         - package_name (Optional): The package where the mesh file and model files will be stored. Default Value: _sim_models_ppmt_
         - model_name (Optional): The name by which user wants to save the model. Default Value: _new_model_
-        - img_path (Optional): The location of image where the line follow path image is stored. Default Value: _"-1"_
         - map_mode (Optional): The mapping mode. Select "line" to generate world for line following robot and "clean" to generate world for cleaning robot. Default Value: _clean_
+        
+        - *THE BELOW GIVEN PARAMETER ARE ONLY USEFUL IN LINE MODE.*
+        - img_path (Optional): The location of image where the line follow path image is stored. Default Value: _"-1"_
         - red (Optional): Path colour user requires in map. Default Value: _255_
         - green (Optional): Path colour user requires in map. Default Value: _0_
         - blue (Optional): Path colour user requires in map. Default Value: _0_
