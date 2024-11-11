@@ -80,7 +80,7 @@ class MapConverter(Node):
         # goes wrong with trimesh to get the logs to print to stdout.
         # trimesh.util.attach_to_log()
         
-        self.template_path = "~/Documents/map2world/src/map2world/templates/"
+        self.template_path = str(get_package_share_directory("map2world")) + "/templates/"
 
     def map_callback(self, map_msg):
         """Processes a 2D map message and converts it into a 3D map by generating
@@ -135,7 +135,7 @@ class MapConverter(Node):
             self.get_logger().info("Exported STL. Shutting down this node now.")
             
             
-        if mesh_type == "dae":
+        elif mesh_type == "dae":
             with open(
                 package_path + f"/models/{model_name}/meshes/{model_name}_wall.dae", "wb"
             ) as f:

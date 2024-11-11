@@ -12,6 +12,8 @@ map2gazebo Project URL: https://github.com/shilohc/map2gazebo
     - matplotlib
     - pycollada
     - shapely
+    - mapbox-earcut
+    - pyglet==1.5.29
 
 ## Installation
 - Make sure all pre-requisites are installed on your system first.
@@ -23,7 +25,7 @@ map2gazebo Project URL: https://github.com/shilohc/map2gazebo
 
 ## Usage
 - Make sure the installation is properly completed
-- Rember to change the path for template folder (variable: self.template_path).
+- If you are using it to generate world for line follow then the path drawn on the image must be of red color otherwise the script wont be able to detect the path.
 - Do verify the location where the model is being saved (variable: package_path). By default it finds the share directory of package_name given.
 - Have a map server publishing the map to a topic. (One way to do is to run your Robotics Stack locally.)
 - Open a fresh terminal, `cd` into the directory where map2world was built, and source it (`source install/setup.bash`)
