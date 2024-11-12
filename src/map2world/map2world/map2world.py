@@ -23,6 +23,8 @@ from shapely.geometry import Polygon
 class MapConverter(Node):
     def __init__(self):
         super().__init__("map2world")
+
+        # Declare Parameters
         self.declare_parameter("map_topic", "map")
         self.declare_parameter("mesh_type", "dae")
         self.declare_parameter("occupied_threshold", 1)
@@ -35,6 +37,7 @@ class MapConverter(Node):
         self.declare_parameter("green", 0)
         self.declare_parameter("blue", 0)
 
+        # Get Parameters
         map_topic = self.get_parameter("map_topic").get_parameter_value().string_value
         self.mesh_type = (
             self.get_parameter("mesh_type").get_parameter_value().string_value
@@ -51,15 +54,12 @@ class MapConverter(Node):
         self.model_name = (
             self.get_parameter("model_name").get_parameter_value().string_value
         )
-
         self.img_path = (
             self.get_parameter("img_path").get_parameter_value().string_value
         )
-
         self.map_mode = (
             self.get_parameter("map_mode").get_parameter_value().string_value
         )
-
         self.red = self.get_parameter("red").get_parameter_value().integer_value
         self.green = self.get_parameter("green").get_parameter_value().integer_value
         self.blue = self.get_parameter("blue").get_parameter_value().integer_value
