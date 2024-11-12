@@ -51,15 +51,15 @@ class MapConverter(Node):
         self.model_name = (
             self.get_parameter("model_name").get_parameter_value().string_value
         )
-        
+
         self.img_path = (
             self.get_parameter("img_path").get_parameter_value().string_value
         )
-        
+
         self.map_mode = (
             self.get_parameter("map_mode").get_parameter_value().string_value
         )
-        
+
         self.red = self.get_parameter("red").get_parameter_value().integer_value
         self.green = self.get_parameter("green").get_parameter_value().integer_value
         self.blue = self.get_parameter("blue").get_parameter_value().integer_value
@@ -79,20 +79,22 @@ class MapConverter(Node):
         # logs, but I don't know it.  Uncomment the below if something
         # goes wrong with trimesh to get the logs to print to stdout.
         # trimesh.util.attach_to_log()
-        
-        self.template_path = str(get_package_share_directory("map2world")) + "/templates/"
+
+        self.template_path = (
+            str(get_package_share_directory("map2world")) + "/templates/"
+        )
 
     def map_callback(self, map_msg):
         """Processes a 2D map message and converts it into a 3D map by generating
-            3D meshes (STL or DAE) for the occupied regions. The method also exports 
+            3D meshes (STL or DAE) for the occupied regions. The method also exports
             the generated 3D meshes to the appropriate file format.
 
         Args:
-            map_msg (MapMessage): The map message containing the 2D occupancy grid 
+            map_msg (MapMessage): The map message containing the 2D occupancy grid
             with the map's metadata (e.g., width, height, resolution).
         """
         self.get_logger().info("Lets trun 2D map into 3D maps!.")
-        
+
         model_name = self.model_name
         package_path = str(get_package_share_directory(self.package_name))
         self.create_project_structure(
@@ -105,17 +107,17 @@ class MapConverter(Node):
 
         # set all -1 (unknown) values to 0 (unoccupied)
         map_array[map_array < 0] = 0
-        
+
         if self.map_mode == "line":
-            if (self.img_path == "-1"):
+            if self.img_path == "-1":
                 self.img_path = input("Please provide image path: ")
-            
+
         contours = self.get_occupied_regions(map_array, self.img_path)
         meshes = self.contour_to_mesh(contours, map_msg.info)
 
         mesh_wall = trimesh.util.concatenate(meshes[0])
         mesh_line = trimesh.util.concatenate(meshes[1])
-        
+
         # Export as STL or DAE
         mesh_type = self.mesh_type
 
@@ -131,26 +133,27 @@ class MapConverter(Node):
                     "wb",
                 ) as f:
                     mesh_line.export(f, "stl")
-                
+
             self.get_logger().info("Exported STL. Shutting down this node now.")
-            
-            
+
         elif mesh_type == "dae":
             with open(
-                package_path + f"/models/{model_name}/meshes/{model_name}_wall.dae", "wb"
+                package_path + f"/models/{model_name}/meshes/{model_name}_wall.dae",
+                "wb",
             ) as f:
                 f.write(trimesh.exchange.dae.export_collada(mesh_wall))
             if self.map_mode == "line":
                 with open(
-                    package_path + f"/models/{model_name}/meshes/{model_name}_line.dae", "wb"
+                    package_path + f"/models/{model_name}/meshes/{model_name}_line.dae",
+                    "wb",
                 ) as f:
                     f.write(trimesh.exchange.dae.export_collada(mesh_line))
-                
+
             self.get_logger().info("Exported DAE. Shutting down this node now.")
 
     def get_occupied_regions(self, map_array, img_loc):
         """Identifies and returns the occupied regions (walls and/or paths) in the map using contours.
-           Depending on the `map_mode` ("clean" or "line"), it processes the map differently and extracts the 
+           Depending on the `map_mode` ("clean" or "line"), it processes the map differently and extracts the
            necessary contours for 3D mesh generation.
 
         Args:
@@ -159,64 +162,78 @@ class MapConverter(Node):
 
         Returns:
             list: Contours list representing the contours of walls in the map.
-            and second contours list representing the lines (paths) if `map_mode` is "line", 
+            and second contours list representing the lines (paths) if `map_mode` is "line",
             otherwise an empty string ("").
         """
-        
+
         map_array = map_array.astype(np.uint8)
-        
+
         if self.map_mode == "clean":
-            
+
             # Using cv2.RETR_CCOMP classifies external contours at top level of
-            # hierarchy and interior contours at second level.  
+            # hierarchy and interior contours at second level.
             # If the whole space is enclosed by walls RETR_EXTERNAL will exclude
             # all interior obstacles e.g. furniture.
             # https://docs.opencv.org/trunk/d9/d8b/tutorial_py_contours_hierarchy.html
-            
+
             contours_wall, hierarchy_wall = cv2.findContours(
-            map_array, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
+                map_array, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
             )
-    
+
             hierarchy_wall = hierarchy_wall[0]
-            corner_idxs_wall = [i for i in range(len(contours_wall)) if hierarchy_wall[i][3] == -1] 
-            
-            return [[contours_wall[i] for i in corner_idxs_wall],""]
-    
+            corner_idxs_wall = [
+                i for i in range(len(contours_wall)) if hierarchy_wall[i][3] == -1
+            ]
+
+            return [[contours_wall[i] for i in corner_idxs_wall], ""]
+
         if self.map_mode == "line":
-            
+
             img = cv2.imread(img_loc)
             img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            
-            img_gray[(5 < img_gray) & (img_gray < 250)] = 255  #used to remove the path to identify walls
-            img_gray = cv2.flip(img_gray, 0)    #flipping the image so that its aligned with map_array
+
+            img_gray[(5 < img_gray) & (img_gray < 250)] = (
+                255  # used to remove the path to identify walls
+            )
+            img_gray = cv2.flip(
+                img_gray, 0
+            )  # flipping the image so that its aligned with map_array
             img_gray = cv2.bitwise_not(img_gray)
-            
+
             img_walls = cv2.bitwise_and(img_gray, map_array)
             contours_wall, hierarchy_wall = cv2.findContours(
                 img_walls, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
             )
-            
+
             hierarchy_wall = hierarchy_wall[0]
-            corner_idxs_wall = [i for i in range(len(contours_wall)) if hierarchy_wall[i][3] == -1]     
-            
+            corner_idxs_wall = [
+                i for i in range(len(contours_wall)) if hierarchy_wall[i][3] == -1
+            ]
+
             hsvFrame = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-            red_lower = np.array([0, 120, 70], np.uint8) 
-            red_upper = np.array([180, 255, 255], np.uint8) 
+            red_lower = np.array([0, 120, 70], np.uint8)
+            red_upper = np.array([180, 255, 255], np.uint8)
             img_path = cv2.inRange(hsvFrame, red_lower, red_upper)
-            img_path = cv2.flip(img_path, 0)    #flipping the image so that its aligned with map_array
-        
+            img_path = cv2.flip(
+                img_path, 0
+            )  # flipping the image so that its aligned with map_array
+
             contours_line, hierarchy_line = cv2.findContours(
                 img_path, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
             )
-            
+
             hierarchy_line = hierarchy_line[0]
-            corner_idxs_line = [i for i in range(len(contours_line)) if hierarchy_line[i][3] == -1]
-            return [[contours_wall[i] for i in corner_idxs_wall], [contours_line[i] for i in corner_idxs_line]]
-        
-        
+            corner_idxs_line = [
+                i for i in range(len(contours_line)) if hierarchy_line[i][3] == -1
+            ]
+            return [
+                [contours_wall[i] for i in corner_idxs_wall],
+                [contours_line[i] for i in corner_idxs_line],
+            ]
+
     def contour_to_mesh(self, contour, metadata):
         """Converts 2D contours into 3D meshes by extruding the contour polygons.
-           This method processes both wall and line contours (if present) and generates 
+           This method processes both wall and line contours (if present) and generates
            3D meshes using the `trimesh` library.
 
         Args:
@@ -230,10 +247,10 @@ class MapConverter(Node):
             - First element (list): A list of `trimesh` meshes representing the walls.
             - Second element (list): A list of `trimesh` meshes representing the lines (paths) if any, otherwise an empty list.
         """
-        
+
         meshes_line = []
         meshes_wall = []
-       
+
         for point in contour[0]:
             new_point_array = []
             for points in point:
@@ -242,21 +259,23 @@ class MapConverter(Node):
                 new_point_array.append(new_point)
             height = self.height
             pixel_size = metadata.resolution
-            
+
             for p in new_point_array:
                 x, y = p
                 # Create a small square around the pixel
-                pixel_polygon = Polygon([
-                    (x, y),  
-                    (x + pixel_size, y), 
-                    (x + pixel_size, y + pixel_size),  
-                    (x, y + pixel_size)  
-                ])
-               
+                pixel_polygon = Polygon(
+                    [
+                        (x, y),
+                        (x + pixel_size, y),
+                        (x + pixel_size, y + pixel_size),
+                        (x, y + pixel_size),
+                    ]
+                )
+
                 mesh_wall = trimesh.creation.extrude_polygon(pixel_polygon, height)
                 meshes_wall.append(mesh_wall)
-                
-        if contour[1] != "":        
+
+        if contour[1] != "":
             for point in contour[1]:
                 new_point_array = []
                 for points in point:
@@ -265,25 +284,29 @@ class MapConverter(Node):
                     new_point_array.append(new_point)
 
                 height = 0.001
-                pixel_size = metadata.resolution  
-                
+                pixel_size = metadata.resolution
+
                 for p in new_point_array:
                     x, y = p
                     # Create a small square around the pixel
-                    pixel_polygon = Polygon([
-                        (x, y),  
-                        (x + pixel_size, y), 
-                        (x + pixel_size, y + pixel_size),
-                        (x, y + pixel_size)  
-                    ])
-                   
+                    pixel_polygon = Polygon(
+                        [
+                            (x, y),
+                            (x + pixel_size, y),
+                            (x + pixel_size, y + pixel_size),
+                            (x, y + pixel_size),
+                        ]
+                    )
+
                     mesh_line = trimesh.creation.extrude_polygon(pixel_polygon, height)
-                    face_colors = [self.red,self.green,self.blue]
+                    face_colors = [self.red, self.green, self.blue]
                     mesh_line.visual.face_colors = face_colors
                     meshes_line.append(mesh_line)
-        
+
         mesh = trimesh.util.concatenate(meshes_wall, meshes_line)
-        print("If you want to discard the mesh file press CTRL+C or else close the 3D preview using GUI")
+        print(
+            "If you want to discard the mesh file press CTRL+C or else close the 3D preview using GUI"
+        )
         mesh.show()
         mesh.remove_duplicate_faces()
 
@@ -297,7 +320,7 @@ class MapConverter(Node):
             metadata (MapMetaData): Metadata from the map.
 
         Returns:
-            tuple: A tuple of (loc_x, loc_y), the world coordinates corresponding to the input 
+            tuple: A tuple of (loc_x, loc_y), the world coordinates corresponding to the input
             pixel coordinates.
         """
         x, y = coords
@@ -306,9 +329,9 @@ class MapConverter(Node):
         # TODO: transform (x*res, y*res, 0.0) by Pose map_metadata.origin
         # instead of assuming origin is at z=0 with no rotation wrt map frame
         return (loc_x, loc_y)
-    
+
     def write_model_data(self, model_name, mesh_type, model_folder, world_folder):
-        """Writes model and world data to SDF and configuration files by copying content 
+        """Writes model and world data to SDF and configuration files by copying content
            from template files and replacing placeholders with the specified model name and mesh type.
 
         Args:
@@ -317,55 +340,54 @@ class MapConverter(Node):
             model_folder (str): The folder path where the model files (SDF and config) will be saved.
             world_folder (str): The folder path where the world SDF file will be saved.
         """
-        
-        # Path to the template .sdf file
-        world_path = os.path.expanduser(self.template_path+'model_world.sdf')
 
-        with open(world_path, 'r') as world_file:
+        # Path to the template .sdf file
+        world_path = os.path.expanduser(self.template_path + "model_world.sdf")
+
+        with open(world_path, "r") as world_file:
             world_content = world_file.read()
 
-        world_content = world_content.replace('{model_name}', model_name)
- 
+        world_content = world_content.replace("{model_name}", model_name)
+
         with open(str(world_folder) + f"/{model_name}.sdf", "w") as world_sdf_file:
             world_sdf_file.write(world_content)
-            
-        config_path = os.path.expanduser(self.template_path+'model.config')
-        
-        with open(config_path, 'r') as config_file:
+
+        config_path = os.path.expanduser(self.template_path + "model.config")
+
+        with open(config_path, "r") as config_file:
             config_content = config_file.read()
 
-        config_content = config_content.replace('{model_name}', model_name)
-        
+        config_content = config_content.replace("{model_name}", model_name)
+
         with open(str(model_folder) + f"/model.config", "w") as config_file:
             config_file.write(config_content)
-        
+
         if self.map_mode == "clean":
-            model_path = os.path.expanduser(self.template_path+'model_clean.sdf')
-        
-            with open(model_path, 'r') as model_file:
+            model_path = os.path.expanduser(self.template_path + "model_clean.sdf")
+
+            with open(model_path, "r") as model_file:
                 model_content = model_file.read()
 
-            model_content = model_content.replace('{model_name}', model_name)
-            model_content = model_content.replace('{mesh_type}', mesh_type)
+            model_content = model_content.replace("{model_name}", model_name)
+            model_content = model_content.replace("{mesh_type}", mesh_type)
 
             with open(str(model_folder) + f"/model.sdf", "w") as model_sdf_file:
                 model_sdf_file.write(model_content)
-        
+
         if self.map_mode == "line":
-            model_path = os.path.expanduser(self.template_path+'model_line.sdf')
-        
-            with open(model_path, 'r') as model_file:
+            model_path = os.path.expanduser(self.template_path + "model_line.sdf")
+
+            with open(model_path, "r") as model_file:
                 model_content = model_file.read()
 
-            model_content = model_content.replace('{model_name}', model_name)
-            model_content = model_content.replace('{mesh_type}', mesh_type)
+            model_content = model_content.replace("{model_name}", model_name)
+            model_content = model_content.replace("{mesh_type}", mesh_type)
 
             with open(str(model_folder) + f"/model.sdf", "w") as model_sdf_file:
                 model_sdf_file.write(model_content)
-
 
     def create_project_structure(self, model_name, mesh_type, package_path):
-        """Creates the directory structure for a new 3D model project, including model, world, and mesh folders, 
+        """Creates the directory structure for a new 3D model project, including model, world, and mesh folders,
            and writes necessary model and world data files based on templates.
 
         Args:
@@ -400,7 +422,7 @@ class MapConverter(Node):
             print(f"Folder '{meshes_folder}' created.")
 
         self.write_model_data(model_name, mesh_type, model_folder, world_folder)
-        
+
 
 def main():
     rclpy.init()
