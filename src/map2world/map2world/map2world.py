@@ -23,6 +23,8 @@ from shapely.geometry import Polygon
 class MapConverter(Node):
     def __init__(self):
         super().__init__("map2world")
+
+        # Declare Parameters
         self.declare_parameter("map_topic", "map")
         self.declare_parameter("mesh_type", "dae")
         self.declare_parameter("occupied_threshold", 1)
@@ -35,6 +37,7 @@ class MapConverter(Node):
         self.declare_parameter("green", 0)
         self.declare_parameter("blue", 0)
 
+        # Get Parameters
         map_topic = self.get_parameter("map_topic").get_parameter_value().string_value
         self.mesh_type = (
             self.get_parameter("mesh_type").get_parameter_value().string_value
@@ -51,15 +54,12 @@ class MapConverter(Node):
         self.model_name = (
             self.get_parameter("model_name").get_parameter_value().string_value
         )
-
         self.img_path = (
             self.get_parameter("img_path").get_parameter_value().string_value
         )
-
         self.map_mode = (
             self.get_parameter("map_mode").get_parameter_value().string_value
         )
-
         self.red = self.get_parameter("red").get_parameter_value().integer_value
         self.green = self.get_parameter("green").get_parameter_value().integer_value
         self.blue = self.get_parameter("blue").get_parameter_value().integer_value
@@ -111,6 +111,10 @@ class MapConverter(Node):
         if self.map_mode == "line":
             if self.img_path == "-1":
                 self.img_path = input("Please provide image path: ")
+        
+        if self.map_mode == "only_line":
+            if self.img_path == "-1":
+                self.img_path = input("Please provide image path: ")
 
         contours = self.get_occupied_regions(map_array, self.img_path)
         meshes = self.contour_to_mesh(contours, map_msg.info)
@@ -137,12 +141,25 @@ class MapConverter(Node):
             self.get_logger().info("Exported STL. Shutting down this node now.")
 
         elif mesh_type == "dae":
-            with open(
-                package_path + f"/models/{model_name}/meshes/{model_name}_wall.dae",
-                "wb",
-            ) as f:
-                f.write(trimesh.exchange.dae.export_collada(mesh_wall))
+            if self.map_mode == "clean":
+                with open(
+                    package_path + f"/models/{model_name}/meshes/{model_name}_wall.dae",
+                    "wb",
+                ) as f:
+                    f.write(trimesh.exchange.dae.export_collada(mesh_wall))
             if self.map_mode == "line":
+                with open(
+                    package_path + f"/models/{model_name}/meshes/{model_name}_wall.dae",
+                    "wb",
+                ) as f:
+                    f.write(trimesh.exchange.dae.export_collada(mesh_wall))
+                    
+                with open(
+                    package_path + f"/models/{model_name}/meshes/{model_name}_line.dae",
+                    "wb",
+                ) as f:
+                    f.write(trimesh.exchange.dae.export_collada(mesh_line))
+            if self.map_mode == "only_line":
                 with open(
                     package_path + f"/models/{model_name}/meshes/{model_name}_line.dae",
                     "wb",
@@ -230,6 +247,41 @@ class MapConverter(Node):
                 [contours_wall[i] for i in corner_idxs_wall],
                 [contours_line[i] for i in corner_idxs_line],
             ]
+        if self.map_mode == "only_line":
+
+            img = cv2.imread(img_loc)
+            img_gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+
+            img_gray[(5 < img_gray) & (img_gray < 250)] = (
+                255  # used to remove the path to identify walls
+            )
+            img_gray = cv2.flip(
+                img_gray, 0
+            )  # flipping the image so that its aligned with map_array
+            img_gray = cv2.bitwise_not(img_gray)
+
+            img_walls = cv2.bitwise_and(img_gray, map_array)
+            
+            hsvFrame = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+            red_lower = np.array([0, 120, 70], np.uint8)
+            red_upper = np.array([180, 255, 255], np.uint8)
+            img_path = cv2.inRange(hsvFrame, red_lower, red_upper)
+            img_path = cv2.flip(
+                img_path, 0
+            )  # flipping the image so that its aligned with map_array
+
+            contours_line, hierarchy_line = cv2.findContours(
+                img_path, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
+            )
+
+            hierarchy_line = hierarchy_line[0]
+            corner_idxs_line = [
+                i for i in range(len(contours_line)) if hierarchy_line[i][3] == -1
+            ]
+            return [
+                "",
+                [contours_line[i] for i in corner_idxs_line],
+            ]
 
     def contour_to_mesh(self, contour, metadata):
         """Converts 2D contours into 3D meshes by extruding the contour polygons.
@@ -250,30 +302,30 @@ class MapConverter(Node):
 
         meshes_line = []
         meshes_wall = []
+        if contour[0] != "":
+            for point in contour[0]:
+                new_point_array = []
+                for points in point:
+                    x, y = points[0]
+                    new_point = self.coords_to_loc((x, y), metadata)
+                    new_point_array.append(new_point)
+                height = self.height
+                pixel_size = metadata.resolution
 
-        for point in contour[0]:
-            new_point_array = []
-            for points in point:
-                x, y = points[0]
-                new_point = self.coords_to_loc((x, y), metadata)
-                new_point_array.append(new_point)
-            height = self.height
-            pixel_size = metadata.resolution
+                for p in new_point_array:
+                    x, y = p
+                    # Create a small square around the pixel
+                    pixel_polygon = Polygon(
+                        [
+                            (x, y),
+                            (x + pixel_size, y),
+                            (x + pixel_size, y + pixel_size),
+                            (x, y + pixel_size),
+                        ]
+                    )
 
-            for p in new_point_array:
-                x, y = p
-                # Create a small square around the pixel
-                pixel_polygon = Polygon(
-                    [
-                        (x, y),
-                        (x + pixel_size, y),
-                        (x + pixel_size, y + pixel_size),
-                        (x, y + pixel_size),
-                    ]
-                )
-
-                mesh_wall = trimesh.creation.extrude_polygon(pixel_polygon, height)
-                meshes_wall.append(mesh_wall)
+                    mesh_wall = trimesh.creation.extrude_polygon(pixel_polygon, height)
+                    meshes_wall.append(mesh_wall)
 
         if contour[1] != "":
             for point in contour[1]:
@@ -376,6 +428,18 @@ class MapConverter(Node):
 
         if self.map_mode == "line":
             model_path = os.path.expanduser(self.template_path + "model_line.sdf")
+
+            with open(model_path, "r") as model_file:
+                model_content = model_file.read()
+
+            model_content = model_content.replace("{model_name}", model_name)
+            model_content = model_content.replace("{mesh_type}", mesh_type)
+
+            with open(str(model_folder) + f"/model.sdf", "w") as model_sdf_file:
+                model_sdf_file.write(model_content)
+        
+        if self.map_mode == "only_line":
+            model_path = os.path.expanduser(self.template_path + "model_only_line.sdf")
 
             with open(model_path, "r") as model_file:
                 model_content = model_file.read()

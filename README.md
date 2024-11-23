@@ -38,7 +38,7 @@ map2gazebo Project URL: https://github.com/shilohc/map2gazebo
         - box_height (Optional): Height of the occupied voxel from ground in the 3D mesh. Default Value: _2.0_
         - package_name (Optional): The package where the mesh file and model files will be stored. Default Value: _sim_models_ppmt_
         - model_name (Optional): The name by which user wants to save the model. Default Value: _new_model_
-        - map_mode (Optional): The mapping mode. Select "line" to generate world for line following robot and "clean" to generate world for cleaning robot. Default Value: _clean_
+        - map_mode (Optional): The mapping mode. Select "line" to generate world for line following robot and "clean" to generate world for cleaning robot. Select "only_line" to generate a world with only lines and no walls. Default Value: _clean_
         
         - *THE BELOW GIVEN PARAMETER ARE ONLY USEFUL IN LINE MODE.*
         - img_path (Optional): The location of image where the line follow path image is stored. Default Value: _"-1"_
