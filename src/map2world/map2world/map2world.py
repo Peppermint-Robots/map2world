@@ -250,33 +250,22 @@ class MapConverter(Node):
         if self.map_mode == "only_line":
 
             img = cv2.imread(img_loc)
-            img_gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-
-            img_gray[(5 < img_gray) & (img_gray < 250)] = (
-                255  # used to remove the path to identify walls
-            )
-            img_gray = cv2.flip(
-                img_gray, 0
-            )  # flipping the image so that its aligned with map_array
-            img_gray = cv2.bitwise_not(img_gray)
-
-            img_walls = cv2.bitwise_and(img_gray, map_array)
             
             hsvFrame = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-            red_lower = np.array([0, 120, 70], np.uint8)
-            red_upper = np.array([180, 255, 255], np.uint8)
+            red_lower = np.array([0, 0, 0], np.uint8)
+            red_upper = np.array([10, 10, 10], np.uint8)
             img_path = cv2.inRange(hsvFrame, red_lower, red_upper)
             img_path = cv2.flip(
                 img_path, 0
             )  # flipping the image so that its aligned with map_array
 
             contours_line, hierarchy_line = cv2.findContours(
-                img_path, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
+                img_path, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE
             )
 
             hierarchy_line = hierarchy_line[0]
             corner_idxs_line = [
-                i for i in range(len(contours_line)) if hierarchy_line[i][3] == -1
+                i for i in range(len(contours_line))
             ]
             return [
                 "",

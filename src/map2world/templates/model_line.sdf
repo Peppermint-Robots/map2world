@@ -10,13 +10,6 @@
                     </mesh>
                 </geometry>
             </collision>
-            <collision name="collision_line">
-                <geometry>
-                    <mesh>
-                        <uri>meshes/{model_name}_line.{mesh_type}</uri>
-                    </mesh>
-                </geometry>
-            </collision>
             <visual name="visual_wall">
                 <geometry>
                     <mesh>
