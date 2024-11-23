@@ -40,7 +40,7 @@ map2gazebo Project URL: https://github.com/shilohc/map2gazebo
         - model_name (Optional): The name by which user wants to save the model. Default Value: _new_model_
         - map_mode (Optional): The mapping mode. Select "line" to generate world for line following robot and "clean" to generate world for cleaning robot. Select "only_line" to generate a world with only lines and no walls. Default Value: _clean_
         
-        - *THE BELOW GIVEN PARAMETER ARE ONLY USEFUL IN LINE MODE.*
+        - *THE BELOW GIVEN PARAMETER ARE ONLY USEFUL IN LINE AND ONLY_LINE MODE.*
         - img_path (Optional): The location of image where the line follow path image is stored. Default Value: _"-1"_
         - red (Optional): Path colour user requires in map. Default Value: _255_
         - green (Optional): Path colour user requires in map. Default Value: _0_
