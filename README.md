@@ -27,9 +27,10 @@ map2gazebo Project URL: https://github.com/shilohc/map2gazebo
 - Make sure the installation is properly completed
 - If you are using it to generate world for line follow then the path drawn on the image must be of red color otherwise the script wont be able to detect the path.
 - Do verify the location where the model is being saved (variable: package_path). By default it finds the share directory of package_name given.
-- Have a map server publishing the map to a topic. (One way to do is to run your Robotics Stack locally.)
+- Have a map server publishing the map to a topic even if you want to generate world for line follow robot. (One way to do is to run your Robotics Stack locally.)
 - Open a fresh terminal, `cd` into the directory where map2world was built, and source it (`source install/setup.bash`)
-- If you are using it for map generation of line follow map then replace the original image with the image having path at the loaction where original image was stored. 
+- If you are using it for map generation of line follow map (in map_mode="line") you will be able to generate walls and lines both in the simulation world.
+- If you are using it in map_mode="only_line" then you just need to provide the path of the image containing lines. It wont get affected by the map being published on map topic.
 - Run map2world: `ros2 run map2world map2world --ros-args -p map_topic:={map_topic} -p mesh_type:={mesh_type} -p occupied_threshold:={occupied_threshold} -p box_height:={box_height} -p package_name:= {package_name} -p model_name:= {model_name} -p img_path:={img_path} -p map_mode:={map_mode} -p red:={red} -p green:={green} -p blue:={blue}`
     - Parameters Reference:
         - map_topic (Optional): Map Topic to which the map is being published. Default Value: _map_
