@@ -236,12 +236,12 @@ class MapConverter(Node):
             )  # flipping the image so that its aligned with map_array
 
             contours_line, hierarchy_line = cv2.findContours(
-                img_path, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
+                img_path, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE
             )
 
             hierarchy_line = hierarchy_line[0]
             corner_idxs_line = [
-                i for i in range(len(contours_line)) if hierarchy_line[i][3] == -1
+                i for i in range(len(contours_line))
             ]
             return [
                 [contours_wall[i] for i in corner_idxs_wall],
