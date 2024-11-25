@@ -252,8 +252,8 @@ class MapConverter(Node):
             img = cv2.imread(img_loc)
             
             hsvFrame = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-            red_lower = np.array([0, 0, 0], np.uint8)
-            red_upper = np.array([10, 10, 10], np.uint8)
+            red_lower = np.array([0, 120, 70], np.uint8)
+            red_upper = np.array([180, 255, 255], np.uint8)
             img_path = cv2.inRange(hsvFrame, red_lower, red_upper)
             img_path = cv2.flip(
                 img_path, 0
