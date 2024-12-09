@@ -194,12 +194,12 @@ class MapConverter(Node):
             # https://docs.opencv.org/trunk/d9/d8b/tutorial_py_contours_hierarchy.html
 
             contours_wall, hierarchy_wall = cv2.findContours(
-                map_array, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
+                map_array, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE
             )
 
             hierarchy_wall = hierarchy_wall[0]
             corner_idxs_wall = [
-                i for i in range(len(contours_wall)) if hierarchy_wall[i][3] == -1
+                i for i in range(len(contours_wall))
             ]
 
             return [[contours_wall[i] for i in corner_idxs_wall], ""]
@@ -219,12 +219,12 @@ class MapConverter(Node):
 
             img_walls = cv2.bitwise_and(img_gray, map_array)
             contours_wall, hierarchy_wall = cv2.findContours(
-                img_walls, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
+                img_walls, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE
             )
 
             hierarchy_wall = hierarchy_wall[0]
             corner_idxs_wall = [
-                i for i in range(len(contours_wall)) if hierarchy_wall[i][3] == -1
+                i for i in range(len(contours_wall))
             ]
 
             hsvFrame = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
