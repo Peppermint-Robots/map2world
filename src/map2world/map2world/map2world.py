@@ -111,7 +111,7 @@ class MapConverter(Node):
         if self.map_mode == "line":
             if self.img_path == "-1":
                 self.img_path = input("Please provide image path: ")
-        
+
         if self.map_mode == "only_line":
             if self.img_path == "-1":
                 self.img_path = input("Please provide image path: ")
@@ -153,7 +153,7 @@ class MapConverter(Node):
                     "wb",
                 ) as f:
                     f.write(trimesh.exchange.dae.export_collada(mesh_wall))
-                    
+
                 with open(
                     package_path + f"/models/{model_name}/meshes/{model_name}_line.dae",
                     "wb",
@@ -186,7 +186,6 @@ class MapConverter(Node):
         map_array = map_array.astype(np.uint8)
 
         if self.map_mode == "clean":
-
             # Using cv2.RETR_CCOMP classifies external contours at top level of
             # hierarchy and interior contours at second level.
             # If the whole space is enclosed by walls RETR_EXTERNAL will exclude
@@ -198,14 +197,11 @@ class MapConverter(Node):
             )
 
             hierarchy_wall = hierarchy_wall[0]
-            corner_idxs_wall = [
-                i for i in range(len(contours_wall))
-            ]
+            corner_idxs_wall = [i for i in range(len(contours_wall))]
 
             return [[contours_wall[i] for i in corner_idxs_wall], ""]
 
         if self.map_mode == "line":
-
             img = cv2.imread(img_loc)
             img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
@@ -223,9 +219,7 @@ class MapConverter(Node):
             )
 
             hierarchy_wall = hierarchy_wall[0]
-            corner_idxs_wall = [
-                i for i in range(len(contours_wall))
-            ]
+            corner_idxs_wall = [i for i in range(len(contours_wall))]
 
             hsvFrame = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
             red_lower = np.array([0, 120, 70], np.uint8)
@@ -240,17 +234,14 @@ class MapConverter(Node):
             )
 
             hierarchy_line = hierarchy_line[0]
-            corner_idxs_line = [
-                i for i in range(len(contours_line))
-            ]
+            corner_idxs_line = [i for i in range(len(contours_line))]
             return [
                 [contours_wall[i] for i in corner_idxs_wall],
                 [contours_line[i] for i in corner_idxs_line],
             ]
         if self.map_mode == "only_line":
-
             img = cv2.imread(img_loc)
-            
+
             hsvFrame = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
             red_lower = np.array([0, 120, 70], np.uint8)
             red_upper = np.array([180, 255, 255], np.uint8)
@@ -264,9 +255,7 @@ class MapConverter(Node):
             )
 
             hierarchy_line = hierarchy_line[0]
-            corner_idxs_line = [
-                i for i in range(len(contours_line))
-            ]
+            corner_idxs_line = [i for i in range(len(contours_line))]
             return [
                 "",
                 [contours_line[i] for i in corner_idxs_line],
@@ -426,7 +415,7 @@ class MapConverter(Node):
 
             with open(str(model_folder) + f"/model.sdf", "w") as model_sdf_file:
                 model_sdf_file.write(model_content)
-        
+
         if self.map_mode == "only_line":
             model_path = os.path.expanduser(self.template_path + "model_only_line.sdf")
 
