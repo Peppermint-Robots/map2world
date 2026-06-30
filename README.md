@@ -8,7 +8,7 @@ map2gazebo Project URL: https://github.com/shilohc/map2gazebo
 - Python3 Dependencies
     - opencv-python
     - numpy
-    - trimesh
+    - trimesh==3.23.5
     - matplotlib
     - pycollada
     - shapely
