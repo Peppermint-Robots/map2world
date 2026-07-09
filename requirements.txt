@@ -1,6 +1,6 @@
 # opencv-python
 # numpy
-trimesh<4
+trimesh==3.23.5
 # matplotlib
 pycollada
 shapely
