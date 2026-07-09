@@ -6,14 +6,9 @@ map2gazebo Project URL: https://github.com/shilohc/map2gazebo
 ## Pre-Requisites
 - ROS2 Humble (tested with the Debian packages)
 - Python3 Dependencies
-    - opencv-python
-    - numpy
-    - trimesh==3.23.5
-    - matplotlib
-    - pycollada
-    - shapely
-    - mapbox-earcut
-    - pyglet==1.5.29
+```bash
+pip install -r requirements.txt
+```
 
 ## Installation
 - Make sure all pre-requisites are installed on your system first.

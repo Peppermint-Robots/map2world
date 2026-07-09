@@ -1,0 +1,8 @@
+# opencv-python
+# numpy
+trimesh==3.23.5
+# matplotlib
+pycollada
+shapely
+mapbox-earcut
+pyglet==1.5.29
