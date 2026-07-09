@@ -1,28 +1,25 @@
 from setuptools import setup
 import glob
 
-package_name = 'map2world'
+package_name = "map2world"
 
 setup(
     name=package_name,
-    version='0.1.0',
+    version="0.1.0",
     packages=[package_name],
     data_files=[
-        ('share/ament_index/resource_index/packages',
-            ['resource/' + package_name]),
-        ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/templates', glob.glob('templates/*'))
+        ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
+        ("share/" + package_name, ["package.xml"]),
+        ("share/" + package_name + "/templates", glob.glob("templates/*")),
     ],
-    install_requires=['setuptools'],
+    install_requires=["setuptools"],
     zip_safe=True,
-    maintainer='swaraj',
-    maintainer_email='swaraj@getpeppermint.co',
-    description='map2world: Convert 2D map into a 3D world',
-    license='Apache License 2.0',
-    tests_require=['pytest'],
+    maintainer="swaraj",
+    maintainer_email="swaraj@getpeppermint.co",
+    description="map2world: Convert 2D map into a 3D world",
+    license="Apache License 2.0",
+    tests_require=["pytest"],
     entry_points={
-        'console_scripts': [
-            "map2world = map2world.map2world:main"
-        ],
+        "console_scripts": ["map2world = map2world.map2world:main"],
     },
 )

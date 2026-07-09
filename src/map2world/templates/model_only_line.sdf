@@ -3,20 +3,6 @@
     <model name="{model_name}">
         <static>true</static>
         <link name="base">
-            <collision name="collision_wall">
-                <geometry>
-                    <mesh>
-                        <uri>meshes/{model_name}_wall.{mesh_type}</uri>
-                    </mesh>
-                </geometry>
-            </collision>
-            <visual name="visual_wall">
-                <geometry>
-                    <mesh>
-                        <uri>meshes/{model_name}_wall.{mesh_type}</uri>
-                    </mesh>
-                </geometry>
-            </visual>
             <visual name="visual_line">
                 <geometry>
                     <mesh>
