@@ -26,10 +26,12 @@
             </visual>
         </link>
         <link name="ground_link">
+            <pose>{floor_pose_x} {floor_pose_y} 0 0 0 0</pose>
             <collision name="collision1">
                 <geometry>
                     <plane>
                         <normal>0 0 1</normal>
+                        <size>{floor_size_x} {floor_size_y}</size>
                     </plane>
                 </geometry>
             </collision>
@@ -37,7 +39,7 @@
                 <geometry>
                     <plane>
                         <normal>0 0 1</normal>
-                        <size>300 300</size>
+                        <size>{floor_size_x} {floor_size_y}</size>
                     </plane>
                 </geometry>
                 <material>

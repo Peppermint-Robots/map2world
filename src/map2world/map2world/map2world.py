@@ -1,10 +1,8 @@
 import cv2
 import numpy as np
 import trimesh
-from matplotlib.tri import Triangulation
 from pathlib import Path
 import os
-import math
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
@@ -36,6 +34,7 @@ class MapConverter(Node):
         self.declare_parameter("red", 255)
         self.declare_parameter("green", 0)
         self.declare_parameter("blue", 0)
+        self.declare_parameter("floor_padding", 50.0)
 
         # Get Parameters
         map_topic = self.get_parameter("map_topic").get_parameter_value().string_value
@@ -63,6 +62,9 @@ class MapConverter(Node):
         self.red = self.get_parameter("red").get_parameter_value().integer_value
         self.green = self.get_parameter("green").get_parameter_value().integer_value
         self.blue = self.get_parameter("blue").get_parameter_value().integer_value
+        self.floor_padding = (
+            self.get_parameter("floor_padding").get_parameter_value().double_value
+        )
 
         map_sub_qos = QoSProfile(
             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
@@ -97,8 +99,8 @@ class MapConverter(Node):
 
         model_name = self.model_name
         package_path = str(get_package_share_directory(self.package_name))
-        self.create_project_structure(
-            model_name=model_name, mesh_type=self.mesh_type, package_path=package_path
+        model_folder, world_folder = self.create_project_structure(
+            model_name=model_name, package_path=package_path
         )
 
         self.get_logger().info("Received map. Processing.")
@@ -118,20 +120,29 @@ class MapConverter(Node):
 
         contours = self.get_occupied_regions(map_array, self.img_path)
         meshes = self.contour_to_mesh(contours, map_msg.info)
+        floor_data = self.calculate_floor_data(meshes)
+        self.write_model_data(
+            model_name=model_name,
+            mesh_type=self.mesh_type,
+            model_folder=model_folder,
+            world_folder=world_folder,
+            floor_data=floor_data,
+        )
 
-        mesh_wall = trimesh.util.concatenate(meshes[0])
-        mesh_line = trimesh.util.concatenate(meshes[1])
+        mesh_wall = self.concatenate_meshes(meshes[0])
+        mesh_line = self.concatenate_meshes(meshes[1])
 
         # Export as STL or DAE
         mesh_type = self.mesh_type
 
         if mesh_type == "stl":
-            with open(
-                package_path + f"/models/{model_name}/meshes/{model_name}_wall.stl",
-                "wb",
-            ) as f:
-                mesh_wall.export(f, "stl")
-            if self.map_mode == "line":
+            if mesh_wall is not None:
+                with open(
+                    package_path + f"/models/{model_name}/meshes/{model_name}_wall.stl",
+                    "wb",
+                ) as f:
+                    mesh_wall.export(f, "stl")
+            if mesh_line is not None:
                 with open(
                     package_path + f"/models/{model_name}/meshes/{model_name}_line.stl",
                     "wb",
@@ -141,25 +152,13 @@ class MapConverter(Node):
             self.get_logger().info("Exported STL. Shutting down this node now.")
 
         elif mesh_type == "dae":
-            if self.map_mode == "clean":
+            if mesh_wall is not None:
                 with open(
                     package_path + f"/models/{model_name}/meshes/{model_name}_wall.dae",
                     "wb",
                 ) as f:
                     f.write(trimesh.exchange.dae.export_collada(mesh_wall))
-            if self.map_mode == "line":
-                with open(
-                    package_path + f"/models/{model_name}/meshes/{model_name}_wall.dae",
-                    "wb",
-                ) as f:
-                    f.write(trimesh.exchange.dae.export_collada(mesh_wall))
-
-                with open(
-                    package_path + f"/models/{model_name}/meshes/{model_name}_line.dae",
-                    "wb",
-                ) as f:
-                    f.write(trimesh.exchange.dae.export_collada(mesh_line))
-            if self.map_mode == "only_line":
+            if mesh_line is not None:
                 with open(
                     package_path + f"/models/{model_name}/meshes/{model_name}_line.dae",
                     "wb",
@@ -333,14 +332,54 @@ class MapConverter(Node):
                     mesh_line.visual.face_colors = face_colors
                     meshes_line.append(mesh_line)
 
-        mesh = trimesh.util.concatenate(meshes_wall, meshes_line)
-        print(
-            "If you want to discard the mesh file press CTRL+C or else close the 3D preview using GUI"
-        )
-        mesh.show()
-        mesh.remove_duplicate_faces()
+        mesh = self.concatenate_meshes(meshes_wall + meshes_line)
+        if mesh is not None:
+            print(
+                "If you want to discard the mesh file press CTRL+C or else close the 3D preview using GUI"
+            )
+            mesh.show()
+            mesh.remove_duplicate_faces()
 
         return [meshes_wall, meshes_line]
+
+    def concatenate_meshes(self, meshes):
+        """Combines a non-empty mesh list into a single mesh."""
+        if not meshes:
+            return None
+
+        return trimesh.util.concatenate(meshes)
+
+    def calculate_floor_data(self, meshes):
+        """Calculates the generated floor pose and size from mesh bounds."""
+        all_meshes = meshes[0] + meshes[1]
+        if not all_meshes:
+            raise ValueError("Cannot create a floor because no meshes were generated.")
+
+        if self.floor_padding < 0:
+            raise ValueError("floor_padding must be greater than or equal to 0.")
+
+        combined_mesh = self.concatenate_meshes(all_meshes)
+        bounds = combined_mesh.bounds
+        min_x, min_y = bounds[0][:2]
+        max_x, max_y = bounds[1][:2]
+
+        size_x = (max_x - min_x) + (2 * self.floor_padding)
+        size_y = (max_y - min_y) + (2 * self.floor_padding)
+        pose_x = (min_x + max_x) / 2
+        pose_y = (min_y + max_y) / 2
+
+        self.get_logger().info(
+            "Generated floor pose: "
+            f"{pose_x:.3f} {pose_y:.3f} 0 0 0 0, "
+            f"size: {size_x:.3f} {size_y:.3f}"
+        )
+
+        return {
+            "floor_pose_x": f"{pose_x:.6f}",
+            "floor_pose_y": f"{pose_y:.6f}",
+            "floor_size_x": f"{size_x:.6f}",
+            "floor_size_y": f"{size_y:.6f}",
+        }
 
     def coords_to_loc(self, coords, metadata):
         """Converts pixel coordinates in the map to world coordinates using the map's metadata.
@@ -360,7 +399,9 @@ class MapConverter(Node):
         # instead of assuming origin is at z=0 with no rotation wrt map frame
         return (loc_x, loc_y)
 
-    def write_model_data(self, model_name, mesh_type, model_folder, world_folder):
+    def write_model_data(
+        self, model_name, mesh_type, model_folder, world_folder, floor_data
+    ):
         """Writes model and world data to SDF and configuration files by copying content
            from template files and replacing placeholders with the specified model name and mesh type.
 
@@ -369,6 +410,7 @@ class MapConverter(Node):
             mesh_type (str): The type of mesh ("stl" or "dae") used in the model, replaced in the model SDF file.
             model_folder (str): The folder path where the model files (SDF and config) will be saved.
             world_folder (str): The folder path where the world SDF file will be saved.
+            floor_data (dict): The generated ground plane pose and size values.
         """
 
         # Path to the template .sdf file
@@ -400,6 +442,7 @@ class MapConverter(Node):
 
             model_content = model_content.replace("{model_name}", model_name)
             model_content = model_content.replace("{mesh_type}", mesh_type)
+            model_content = self.replace_floor_data(model_content, floor_data)
 
             with open(str(model_folder) + f"/model.sdf", "w") as model_sdf_file:
                 model_sdf_file.write(model_content)
@@ -412,6 +455,7 @@ class MapConverter(Node):
 
             model_content = model_content.replace("{model_name}", model_name)
             model_content = model_content.replace("{mesh_type}", mesh_type)
+            model_content = self.replace_floor_data(model_content, floor_data)
 
             with open(str(model_folder) + f"/model.sdf", "w") as model_sdf_file:
                 model_sdf_file.write(model_content)
@@ -424,17 +468,23 @@ class MapConverter(Node):
 
             model_content = model_content.replace("{model_name}", model_name)
             model_content = model_content.replace("{mesh_type}", mesh_type)
+            model_content = self.replace_floor_data(model_content, floor_data)
 
             with open(str(model_folder) + f"/model.sdf", "w") as model_sdf_file:
                 model_sdf_file.write(model_content)
 
-    def create_project_structure(self, model_name, mesh_type, package_path):
-        """Creates the directory structure for a new 3D model project, including model, world, and mesh folders,
-           and writes necessary model and world data files based on templates.
+    def replace_floor_data(self, content, floor_data):
+        """Replaces floor placeholders in SDF template content."""
+        for key, value in floor_data.items():
+            content = content.replace("{" + key + "}", value)
+
+        return content
+
+    def create_project_structure(self, model_name, package_path):
+        """Creates model, world, and mesh folders for a new 3D model project.
 
         Args:
             model_name (str): The name of the model to be used in file paths and for naming the model folder.
-            mesh_type (str): The type of mesh ("stl" or "dae") used in the model.
             package_path (str): The base directory where the project structure will be created
         """
         # Create the root folder
@@ -463,7 +513,7 @@ class MapConverter(Node):
             )  # Create the folder including any necessary parent directories
             print(f"Folder '{meshes_folder}' created.")
 
-        self.write_model_data(model_name, mesh_type, model_folder, world_folder)
+        return model_folder, world_folder
 
 
 def main():
