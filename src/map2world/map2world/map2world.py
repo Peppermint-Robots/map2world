@@ -35,6 +35,7 @@ class MapConverter(Node):
         self.declare_parameter("green", 0)
         self.declare_parameter("blue", 0)
         self.declare_parameter("floor_padding", 50.0)
+        self.declare_parameter("preview", True)
 
         # Get Parameters
         map_topic = self.get_parameter("map_topic").get_parameter_value().string_value
@@ -65,6 +66,7 @@ class MapConverter(Node):
         self.floor_padding = (
             self.get_parameter("floor_padding").get_parameter_value().double_value
         )
+        self.preview = self.get_parameter("preview").get_parameter_value().bool_value
 
         map_sub_qos = QoSProfile(
             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
@@ -339,6 +341,19 @@ class MapConverter(Node):
             )
             mesh.show()
             mesh.remove_duplicate_faces()
+        mesh = trimesh.util.concatenate(meshes_wall, meshes_line)
+        print(
+            "If you want to discard the mesh file press CTRL+C or else close the 3D preview using GUI"
+        )
+        mesh.show()
+        mesh.remove_duplicate_faces()
+        mesh = trimesh.util.concatenate(meshes_wall, meshes_line)
+        if self.preview:
+            print(
+                "If you want to discard the mesh file press CTRL+C or else close the 3D preview using GUI"
+            )
+            mesh.show()
+        mesh.remove_duplicate_faces()
 
         return [meshes_wall, meshes_line]
 
